@@ -1,8 +1,14 @@
 // Libraries
+#include "./libraries/newlib/pthread.h"
+
 // Credentials
 
 // GPIO
+// input only
 const int shotSensorPin = 34;  // Read: 1 = Free, 0 = Interrupted
+const int triggerPin = 35;     // Read: 1 = Shoot, 0 = Stop
+// output only
+const int firePin = 33;  // Write 1 = enable relay = shoot, else stop
 
 // setting PWM properties
 const int freq = 5000;
@@ -13,7 +19,7 @@ int shotDetection = 0;
 int shotNumber = 0;
 
 void setup() {
-  // Serial
+  // Serial Setup
   Serial.begin(115200);
 
   // GPIO Setup
