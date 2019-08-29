@@ -1,4 +1,7 @@
 // Libraries
+#include <WiFi.h>
+#include <WiFiClient.h>
+
 #include "./libraries/newlib/pthread.h"
 
 // Credentials
@@ -15,27 +18,49 @@ const int freq = 5000;
 const int shotChannel = 0;  // Shot Sensor
 const int resolution = 8;   // 8 Bit results in 0-255 as Range for Duty Cycle
 
-int shotDetection = 0;
+// Setting debounce delay for mechanical trigger switch/button
+int triggerDebounceDelay = 120;
+
 int shotNumber = 0;
+int triggerNumber = 0;
 
 void setup() {
   // Serial Setup
   Serial.begin(115200);
 
   // GPIO Setup
+
+  // shotsensor
   ledcSetup(shotChannel, freq, resolution);
   ledcAttachPin(shotSensorPin, shotChannel);
   pinMode(shotSensorPin, INPUT);
+
+  // trigger switch
+  pinMode(triggerPin, INPUT);
 }
 
 void loop() {
   Serial.println("entering sensor loop now");
-  shotDetection = digitalRead(34);
   while (true) {
-    if (digitalRead(34) == 0) {
+    if (digitalRead(shotSensorPin) == 0) {
       Serial.print("Shot FIred!!! - ");
       Serial.println(++shotNumber);
       while (digitalRead(34) == 0) {
+      }
+    }
+    if (digitalRead(triggerPin) == 1) {
+      delay(triggerDebounceDelay / 2);
+      if (digitalRead(triggerPin) == 1) {
+        delay(triggerDebounceDelay / 2);
+        Serial.print("Trigger Pulled - ");
+        Serial.println(++triggerNumber);
+        while (digitalRead(triggerPin) == 1) {
+          // Shoot
+        }
+        delay(triggerDebounceDelay / 8);
+        if (digitalRead(triggerPin) == 0) {
+          continue;
+        }
       }
     }
   }
