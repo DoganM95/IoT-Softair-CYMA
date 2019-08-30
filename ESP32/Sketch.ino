@@ -37,17 +37,15 @@ void setup() {
 
   // trigger switch
   pinMode(triggerPin, INPUT);
+
+  //fire pin
+  pinMode(firePin, OUTPUT);
 }
 
 void loop() {
   Serial.println("entering sensor loop now");
   while (true) {
-    if (digitalRead(shotSensorPin) == 0) {
-      Serial.print("Shot FIred!!! - ");
-      Serial.println(++shotNumber);
-      while (digitalRead(34) == 0) {
-      }
-    }
+    shoot();
     if (digitalRead(triggerPin) == 1) {
       delay(triggerDebounceDelay / 2);
       if (digitalRead(triggerPin) == 1) {
@@ -66,6 +64,15 @@ void loop() {
   }
 }
 
+void shoot() {
+  if (digitalRead(shotSensorPin) == 0) {
+    Serial.print("Shot FIred!!! - ");
+    Serial.println(++shotNumber);
+
+    while (digitalRead(34) == 0) {
+    }
+  }
+}
 // Todo:
 
 // pthread: Run loops threaded (like shot detection loop)
