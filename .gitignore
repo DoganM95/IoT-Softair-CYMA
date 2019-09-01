@@ -1,2 +1,3 @@
-*/.vscode/*
 */Credentials/*
+!*/Credentials/Templates
+.vscode
