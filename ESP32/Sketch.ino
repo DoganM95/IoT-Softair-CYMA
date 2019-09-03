@@ -7,7 +7,7 @@
 #include <WiFiClient.h>
 #include <WiFiServer.h>
 #include <WiFiUdp.h>
-#include "./libraries/newlib/pthread.h"
+#include <pthread.h>
 
 // Credentials
 #include "Credentials/OtaLogin.h"
@@ -16,6 +16,7 @@
 // ----------------------------------------------------------------------------
 // SETTINGS
 // ----------------------------------------------------------------------------
+
 int otaPort = 80;
 
 // GPIO
@@ -48,9 +49,30 @@ const char* serverIndex =
     "type='file' name='update'><input type='submit' value='Update'></form>";
 
 // ----------------------------------------------------------------------------
-//  Function Declarations
+//  FUNCTION DECLARATIONS
 // ----------------------------------------------------------------------------
 void shoot();
+
+// ----------------------------------------------------------------------------
+// THREADS
+// ----------------------------------------------------------------------------
+
+// xTaskHandle Task1;
+// xTaskHandle Task2;
+
+void triggerThreadTask(void* p) {
+  while (true) {
+  }
+}
+
+// xTaskCreateUniversal(&triggerThreadTask, "triggerThread", 10000, NULL, 1,
+// NULL,0);
+
+void triggerThreadTask();
+void shotdetectionThreadTask();
+void shootThreadTask();
+
+void webserverThreadTask();
 
 // ----------------------------------------------------------------------------
 // SETUP
@@ -58,7 +80,7 @@ void shoot();
 void setup() {
   // Serial SETUP
   Serial.begin(115200);
-
+  Serial.println(xPortGetCoreID());
   // GPIO SETUP
 
   // shotsensor
@@ -154,14 +176,17 @@ void loop() {
 
       if (digitalRead(triggerPin) == 1) {
         delay(triggerDebounceDelay / 2);
-        Serial.print("Trigger Pulled - ");
-        Serial.println(++triggerNumber);
-        while (digitalRead(triggerPin) == 1) {
-          shoot(true);
+        Serial.printf("Trigger Pulled - %d\n", ++triggerNumber);
+        if (digitalRead(triggerPin) == 1) {
+          Serial.println("Shooting now..");
         }
-        delay(triggerDebounceDelay / 4);
+        while (digitalRead(triggerPin) == 1) {
+          shoot(true, "semi");
+        }
+        delay(triggerDebounceDelay / 3.5);
         if (digitalRead(triggerPin) == 0) {
-          shoot(false);
+          shoot(false, "semi");
+          Serial.println("Stopped shooting.");
           continue;
         }
       }
@@ -172,12 +197,14 @@ void loop() {
 // ----------------------------------------------------------------------------
 // Actions
 // ----------------------------------------------------------------------------
-void shoot(boolean state) {
+void shoot(boolean state, String automaticMode) {
   if (state) {
+    // if (digitalRead(shotSensorPin) == 1) {
     digitalWrite(firePin, 1);
   } else {
     digitalWrite(firePin, 0);
   }
+  // }
 }
 
 // Todo:
