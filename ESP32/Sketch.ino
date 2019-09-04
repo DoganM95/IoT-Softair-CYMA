@@ -7,7 +7,12 @@
 #include <WiFiClient.h>
 #include <WiFiServer.h>
 #include <WiFiUdp.h>
+// #include <esp_pthread.h>
 #include <pthread.h>
+// #include <queue.h>
+// #include "task.h"
+// #include <FreeRTOS.h>
+// #include <semphr.h>
 
 // Credentials
 #include "Credentials/OtaLogin.h"
@@ -18,6 +23,7 @@
 // ----------------------------------------------------------------------------
 
 int otaPort = 80;
+int touchDetectionThreshold = 18;
 
 // GPIO
 // input only
@@ -56,23 +62,29 @@ void shoot();
 // ----------------------------------------------------------------------------
 // THREADS
 // ----------------------------------------------------------------------------
+pthread_t triggerThreadHandle;
+pthread_t shotdetectionThreadHandle;
+pthread_t shootThreadHandle;
+pthread_t webserverThreadHandle;
 
-// xTaskHandle Task1;
+SemaphoreHandle_t triggerSemaphore;
+SemaphoreHandle_t shotdetectionSemaphore;
+SemaphoreHandle_t shootSemaphore;
+SemaphoreHandle_t webServerSemaphore;
+
+pthread_mutex_t mutex;
+
+// pthread_mutex_lock(&mutex);
+// Serial.println("mutex locked");
+// pthread_mutex_unlock(&mutex);
+// Serial.println("mutex unlocked");
+
+xTaskHandle Task1;
+int threadCreationResult;
 // xTaskHandle Task2;
 
-void triggerThreadTask(void* p) {
-  while (true) {
-  }
-}
-
-// xTaskCreateUniversal(&triggerThreadTask, "triggerThread", 10000, NULL, 1,
-// NULL,0);
-
-void triggerThreadTask();
-void shotdetectionThreadTask();
-void shootThreadTask();
-
-void webserverThreadTask();
+// xTaskCreatePinnedToCore(&triggerThreadTask, "triggerThread", 10000, NULL, 1,
+//                         NULL, 0);
 
 // ----------------------------------------------------------------------------
 // SETUP
@@ -80,7 +92,10 @@ void webserverThreadTask();
 void setup() {
   // Serial SETUP
   Serial.begin(115200);
-  Serial.println(xPortGetCoreID());
+
+  // pthread_create(&pthread_t, NULL, function_to_be_executed, void*
+  // input_argument)
+
   // GPIO SETUP
 
   // shotsensor
@@ -96,23 +111,52 @@ void setup() {
   while (WiFi.status() != WL_CONNECTED) {  // Wait for Wifi connection
   }
   Serial.printf("Connected to Wifi: %s", WIFI_SSID);
+  // Thread Creations
 
+  if (pthread_create(&webserverThreadHandle, NULL, webServerThreadFunction, NULL) == 0) {
+    Serial.println("Thread WebServer successfully started");
+  }
+  if (pthread_create(&shootThreadHandle, NULL, shootThreadFunction, NULL) == 0) {
+    Serial.println("Thread shootFunctionality successfully started");
+  }
+}
+
+// ----------------------------------------------------------------------------
+// MAIN LOOP
+// ----------------------------------------------------------------------------
+void loop() {}
+
+// ----------------------------------------------------------------------------
+// Actions
+// ----------------------------------------------------------------------------
+void shoot(boolean state, String automaticMode) {
+  if (state) {
+    // if (digitalRead(shotSensorPin) == 1) {
+    digitalWrite(firePin, 1);
+  } else {
+    digitalWrite(firePin, 0);
+  }
+  // }
+}
+
+// ----------------------------------------------------------------------------
+// Functions running as threads
+// ----------------------------------------------------------------------------
+void* webServerThreadFunction(void* param) {
   // Webserver for OTA Updates
   MDNS.begin(WIFI_HOSTNAME);
   ArduinoOTA.begin();
 
   server.on("/", []() {
-    if (!server.authenticate(www_username, www_password))
-    // Basic Auth Method with Custom realm and Failure Response
-    // return server.requestAuthentication(BASIC_AUTH, www_realm,
-    // authFailResponse); Digest Auth Method with realm="Login Required" and
-    // empty Failure Response return server.requestAuthentication(DIGEST_AUTH);
-    // Digest Auth Method with Custom realm and empty Failure Response
-    // return server.requestAuthentication(DIGEST_AUTH, www_realm);
-    // Digest Auth Method with Custom realm and Failure Response
-    {
-      return server.requestAuthentication(DIGEST_AUTH, www_realm,
-                                          authFailResponse);
+    if (!server.authenticate(www_username, www_password)) {
+      // Basic Auth Method with Custom realm and Failure Response
+      // return server.requestAuthentication(BASIC_AUTH, www_realm,
+      // authFailResponse); Digest Auth Method with realm="Login Required" and
+      // empty Failure Response return server.requestAuthentication(DIGEST_AUTH);
+      // Digest Auth Method with Custom realm and empty Failure Response
+      // return server.requestAuthentication(DIGEST_AUTH, www_realm);
+      // Digest Auth Method with Custom realm and Failure Response
+      return server.requestAuthentication(DIGEST_AUTH, www_realm, authFailResponse);
     }
     server.sendHeader("Connection, lel", "close");
     server.send(200, "text/html", serverIndex);
@@ -121,56 +165,52 @@ void setup() {
       server.sendHeader("Connection", "close");
       server.send(200, "text/html", serverIndex);
     });
-    server.on(
-        "/update", HTTP_POST,
-        []() {
-          server.sendHeader("Connection", "close");
-          server.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
-          ESP.restart();
-        },
-        []() {
-          HTTPUpload& upload = server.upload();
-          if (upload.status == UPLOAD_FILE_START) {
-            Serial.setDebugOutput(true);
-            Serial.printf("Update: %s\n", upload.filename.c_str());
-            if (!Update.begin()) {  // start with max available size
-              Update.printError(Serial);
-            }
-          } else if (upload.status == UPLOAD_FILE_WRITE) {
-            if (Update.write(upload.buf, upload.currentSize) !=
-                upload.currentSize) {
-              Update.printError(Serial);
-            }
-          } else if (upload.status == UPLOAD_FILE_END) {
-            if (Update.end(
-                    true)) {  // true to set the size to the current progress
-              Serial.printf("Update Success: %u\nRebooting...\n",
-                            upload.totalSize);
-            } else {
-              Update.printError(Serial);
-            }
-            Serial.setDebugOutput(false);
-          } else {
-            Serial.printf(
-                "Update Failed Unexpectedly (likely broken connection): "
-                "status=%d\n",
-                upload.status);
-          }
-        });
+    server.on("/update", HTTP_POST,
+              []() {
+                server.sendHeader("Connection", "close");
+                server.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
+                ESP.restart();
+              },
+              []() {
+                HTTPUpload& upload = server.upload();
+                if (upload.status == UPLOAD_FILE_START) {
+                  Serial.setDebugOutput(true);
+                  Serial.printf("Update: %s\n", upload.filename.c_str());
+                  if (!Update.begin()) {  // start with max available size
+                    Update.printError(Serial);
+                  }
+                } else if (upload.status == UPLOAD_FILE_WRITE) {
+                  if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+                    Update.printError(Serial);
+                  }
+                } else if (upload.status == UPLOAD_FILE_END) {
+                  if (Update.end(true)) {  // true to set the size to the current progress
+                    Serial.printf("Update Success: %u\nRebooting...\n", upload.totalSize);
+                  } else {
+                    Update.printError(Serial);
+                  }
+                  Serial.setDebugOutput(false);
+                } else {
+                  Serial.printf(
+                      "Update Failed Unexpectedly (likely broken connection): "
+                      "status=%d\n",
+                      upload.status);
+                }
+              });
   });
   server.begin();
   MDNS.addService("http", "tcp", otaPort);
-  Serial.printf("Open http://%s:%i", WiFi.localIP(), otaPort);
+  Serial.printf("Open http://%s:%i\n", WiFi.localIP(), otaPort);
+
+  while (true) {
+    server.handleClient();
+    ArduinoOTA.handle();
+  }
 }
 
-// ----------------------------------------------------------------------------
-// MAIN LOOP
-// ----------------------------------------------------------------------------
-void loop() {
-  Serial.println("entering sensor loop now");
+void* shootThreadFunction(void* param) {
   while (true) {
-    ArduinoOTA.handle();
-    server.handleClient();
+    // Serial.printf("Touch Sensor: %d\n", touchRead(4));
     if (digitalRead(triggerPin) == 1) {
       delay(triggerDebounceDelay / 2);
 
@@ -194,24 +234,7 @@ void loop() {
   }
 }
 
-// ----------------------------------------------------------------------------
-// Actions
-// ----------------------------------------------------------------------------
-void shoot(boolean state, String automaticMode) {
-  if (state) {
-    // if (digitalRead(shotSensorPin) == 1) {
-    digitalWrite(firePin, 1);
-  } else {
-    digitalWrite(firePin, 0);
-  }
-  // }
-}
-
 // Todo:
-
-// pthread: Run loops threaded (like shot detection loop)
-
-// declare volatile, global vars to be shared between threads
 
 // build in a trigger sensor to shoot when trigger is pulled and implement semi
 // automatic shooting afterwards
@@ -222,8 +245,7 @@ void shoot(boolean state, String automaticMode) {
 // connect led's to gpios, so glock lights up a red status led to inidcate
 // deepsleep and green when awake
 
-// mechanically integrate a metal (flat side of a screw?) into trigger which
-// gets touched wen touching the trigger to wake the esp from deepsleep mode
+// when touching the trigger, wake the esp from deepsleep mode
 
 // integrate led's to look like a tritium sight (with configurable brightness?
 // using photoresistor?)
