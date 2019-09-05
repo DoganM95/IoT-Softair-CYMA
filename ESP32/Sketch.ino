@@ -246,9 +246,6 @@ void* shootThreadFunction(void* param) {
 
 // Todo:
 
-// build in a trigger sensor to shoot when trigger is pulled and implement semi
-// automatic shooting afterwards
-
 // 3D Print barrel cover
 
 // implement deepsleep mode (sleep when no shot is detected for 1 minute) and
