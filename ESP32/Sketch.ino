@@ -149,14 +149,17 @@ void shoot(boolean state, String automaticMode = "") {  // automaticMode is an o
       delay(10);
       digitalWrite(firePin, LOW);
       Serial.printf("Shot once - %d\n", ++shotNumber);
-    }
-  } else if (automaticMode == "full") {  // shoots until either trigger is released or finger stopped touching trigger
-    while (digitalRead(triggerPin) == HIGH && touchRead(4) <= touchDetectionThreshold) {
-      digitalWrite(firePin, HIGH);
-    }
-    delay(triggerDebounceDelay / 4);
-    if (digitalRead(triggerPin) == LOW || touchRead(4) >= touchDetectionThreshold) {
-      digitalWrite(firePin, 0);
+    } else if (automaticMode == "full") {  // shoots until either trigger is released or finger stopped touching trigger
+      while (digitalRead(triggerPin) == HIGH && touchRead(4) <= touchDetectionThreshold) {
+      continueShooting:
+        digitalWrite(firePin, HIGH);
+      }
+      delay(triggerDebounceDelay / 4);
+      if (digitalRead(triggerPin) == LOW || touchRead(4) >= touchDetectionThreshold) {
+        digitalWrite(firePin, LOW);
+      } else {
+        goto continueShooting;
+      }
     }
   }
 }
@@ -236,21 +239,6 @@ void* shootThreadFunction(void* param) {
       if (digitalRead(triggerPin) == HIGH) {
         Serial.printf("touched and triggered - %d\n", i++);
         shoot(true, "semi");
-        // delay(100);
-        // delay(triggerDebounceDelay / 2);
-        // if (digitalRead(triggerPin) == HIGH) {  // if after bouncing still high
-        //   Serial.printf("Trigger Pulled - %d\n", ++triggerNumber);
-        //   Serial.println("Shooting now..");
-        // while (digitalRead(triggerPin) == 1) {
-        //   shoot(true, "semi");
-        // }
-        // delay(triggerDebounceDelay / 3.5);
-        // if (digitalRead(triggerPin) == 0) {
-        //   shoot(false, "semi");
-        //   Serial.println("Stopped shooting.");
-        //   continue;
-        // }
-        // }
       }
     }
   }
