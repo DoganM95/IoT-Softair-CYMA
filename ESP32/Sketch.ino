@@ -24,6 +24,9 @@
 
 int otaPort = 80;
 int touchDetectionThreshold = 18;
+int debounceCount = 10;
+int debounceDleayCounter = 0;
+int i = 0;
 
 // GPIO
 // input only
@@ -110,9 +113,16 @@ void setup() {
   WiFi.begin(WIFI_SSID, WIFI_PASSORD);
   while (WiFi.status() != WL_CONNECTED) {  // Wait for Wifi connection
   }
-  Serial.printf("Connected to Wifi: %s", WIFI_SSID);
-  // Thread Creations
+  Serial.printf("Connected to Wifi: %s\n", WIFI_SSID);
 
+  // Thread configurations
+  disableCore0WDT();
+  disableCore1WDT();
+
+  Serial.print("shotSensor state: normally");
+  Serial.println(digitalRead(shotSensorPin));
+
+  // Thread Creations
   if (pthread_create(&webserverThreadHandle, NULL, webServerThreadFunction, NULL) == 0) {
     Serial.println("Thread WebServer successfully started");
   }
@@ -129,14 +139,26 @@ void loop() {}
 // ----------------------------------------------------------------------------
 // Actions
 // ----------------------------------------------------------------------------
-void shoot(boolean state, String automaticMode) {
+void shoot(boolean state, String automaticMode = "") {  // automaticMode is an optional parameter
   if (state) {
-    // if (digitalRead(shotSensorPin) == 1) {
-    digitalWrite(firePin, 1);
-  } else {
-    digitalWrite(firePin, 0);
+    delay(triggerDebounceDelay / 2);  // debouncing here enables a simple if-else-conditoin before shooting
+    if (automaticMode == "semi") {    // registers one shot using speed sensor, delays to complete shot and stops
+      while (digitalRead(shotSensorPin) == HIGH) {
+        digitalWrite(firePin, HIGH);
+      }
+      delay(10);
+      digitalWrite(firePin, LOW);
+      Serial.printf("Shot once - %d\n", ++shotNumber);
+    }
+  } else if (automaticMode == "full") {  // shoots until either trigger is released or finger stopped touching trigger
+    while (digitalRead(triggerPin) == HIGH && touchRead(4) <= touchDetectionThreshold) {
+      digitalWrite(firePin, HIGH);
+    }
+    delay(triggerDebounceDelay / 4);
+    if (digitalRead(triggerPin) == LOW || touchRead(4) >= touchDetectionThreshold) {
+      digitalWrite(firePin, 0);
+    }
   }
-  // }
 }
 
 // ----------------------------------------------------------------------------
@@ -210,25 +232,25 @@ void* webServerThreadFunction(void* param) {
 
 void* shootThreadFunction(void* param) {
   while (true) {
-    // Serial.printf("Touch Sensor: %d\n", touchRead(4));
-    if (digitalRead(triggerPin) == 1) {
-      delay(triggerDebounceDelay / 2);
-
-      if (digitalRead(triggerPin) == 1) {
-        delay(triggerDebounceDelay / 2);
-        Serial.printf("Trigger Pulled - %d\n", ++triggerNumber);
-        if (digitalRead(triggerPin) == 1) {
-          Serial.println("Shooting now..");
-        }
-        while (digitalRead(triggerPin) == 1) {
-          shoot(true, "semi");
-        }
-        delay(triggerDebounceDelay / 3.5);
-        if (digitalRead(triggerPin) == 0) {
-          shoot(false, "semi");
-          Serial.println("Stopped shooting.");
-          continue;
-        }
+    if (touchRead(4) <= touchDetectionThreshold) {  // Trigger touched by skin
+      if (digitalRead(triggerPin) == HIGH) {
+        Serial.printf("touched and triggered - %d\n", i++);
+        shoot(true, "semi");
+        // delay(100);
+        // delay(triggerDebounceDelay / 2);
+        // if (digitalRead(triggerPin) == HIGH) {  // if after bouncing still high
+        //   Serial.printf("Trigger Pulled - %d\n", ++triggerNumber);
+        //   Serial.println("Shooting now..");
+        // while (digitalRead(triggerPin) == 1) {
+        //   shoot(true, "semi");
+        // }
+        // delay(triggerDebounceDelay / 3.5);
+        // if (digitalRead(triggerPin) == 0) {
+        //   shoot(false, "semi");
+        //   Serial.println("Stopped shooting.");
+        //   continue;
+        // }
+        // }
       }
     }
   }
