@@ -247,12 +247,36 @@ void* shootThreadFunction(void* param) {
   }
 }
 
+//@param buttonGPIO
+void debounce(String buttonAction, int buttonGPIO, int timeToDetermineFinalButtonState) {
+  if (buttonAction == "press") {
+    while (true) {
+    restartDebounceTimePress:
+      for (int timePassed = 0; i <= timeToDetermineFinalButtonState; i++) {
+        delay(1);
+        if (digitalRead(buttonGPIO) == LOW) {
+          goto restartDebounceTimePress;
+        }
+      }
+      return;
+    }
+
+  } else if (buttonAction == "release") {
+    while (true) {
+    restartDebounceTimeRelease:
+      for (int timePassed = 0; i <= timeToDetermineFinalButtonState; i++) {
+        delay(1);
+        if (digitalRead(buttonGPIO) == HIGH) {
+          goto restartDebounceTimeRelease;
+        }
+      }
+      return;
+    }
+  }
+}
 // Todo:
 
 // 3D Print barrel cover
-
-// Need a more precise debouncing algorithm (wait for e.g. 10ms of constant high after first High was registered in
-// trigger. same goes for low after releasing trigger)
 
 // implement deepsleep mode (sleep when no shot is detected for 1 minute) and
 // connect led's to gpios, so glock lights up a red status led to inidcate
