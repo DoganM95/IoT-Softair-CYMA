@@ -278,6 +278,8 @@ void debounce(String buttonAction, int buttonGPIO, int timeToDetermineFinalButto
 
 // 3D Print barrel cover
 
+// integrate new debounce algorithm into shoot function
+
 // implement deepsleep mode (sleep when no shot is detected for 1 minute) and
 // connect led's to gpios, so glock lights up a red status led to inidcate
 // deepsleep and green when awake
