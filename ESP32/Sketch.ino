@@ -149,6 +149,9 @@ void shoot(boolean state, String automaticMode = "") {  // automaticMode is an o
       delay(10);
       digitalWrite(firePin, LOW);
       Serial.printf("Shot once - %d\n", ++shotNumber);
+      while (digitalRead(triggerPin) == HIGH) {
+        // wait until finger is released
+      }
     } else if (automaticMode == "full") {  // shoots until either trigger is released or finger stopped touching trigger
       while (digitalRead(triggerPin) == HIGH && touchRead(4) <= touchDetectionThreshold) {
       continueShooting:
@@ -247,6 +250,9 @@ void* shootThreadFunction(void* param) {
 // Todo:
 
 // 3D Print barrel cover
+
+// Need a more precise debouncing algorithm (wait for e.g. 10ms of constant high after first High was registered in
+// trigger. same goes for low after releasing trigger)
 
 // implement deepsleep mode (sleep when no shot is detected for 1 minute) and
 // connect led's to gpios, so glock lights up a red status led to inidcate
