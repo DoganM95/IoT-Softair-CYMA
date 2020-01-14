@@ -18,22 +18,76 @@
 #include "Credentials/OtaLogin.h"
 #include "Credentials/Wifi.h"
 
+using namespace softair;
+class Softair {
+ public:
+  const unsigned short int shotSensorPin = 34;  // Read: 1 = Free, 0 = Interrupted
+  const unsigned short int triggerPin = 35;     // Read: 1 = Shoot, 0 = Stop
+
+  const unsigned short int burstShootCount = 0;
+
+  /**
+    GPIO Pin which triggers shooting when HIGH.
+    Write 1 = enable relay = shoot, else stop
+  */
+  const unsigned short int firePin = 33;
+
+  // ----------------------------------------------------------------------------
+  // Actions
+  // ----------------------------------------------------------------------------
+
+  /**
+   * Function to shoot BB's.
+   * @param state shoots or stops shooting
+   * @param automaticMode sets shoot mode ("semi-automatic", "full-automatic", "burst")
+   */
+  void shoot(boolean state, String automaticMode = "") {  // automaticMode is an optional parameter
+    if (state) {
+      delay(triggerDebounceDelay / 2);  // debouncing here enables a simple if-else-conditoin before shooting
+      if (automaticMode ==
+          "semi-automatic") {  // registers one shot using speed sensor, delays to complete shot and stops
+        while (digitalRead(shotSensorPin) == HIGH) {
+          digitalWrite(firePin, HIGH);
+        }
+        delay(10);
+        digitalWrite(firePin, LOW);
+        Serial.printf("Shot once - %d\n", ++shotNumber);
+      }
+
+      else if (automaticMode ==
+               "full-automatic") {  // shoots until either trigger is released or finger stopped touching trigger
+        while (digitalRead(triggerPin) == HIGH && touchRead(4) <= touchDetectionThreshold) {
+        continueShooting:
+          digitalWrite(firePin, HIGH);
+        }
+        delay(triggerDebounceDelay / 4);
+        if (digitalRead(triggerPin) == LOW || touchRead(4) >= touchDetectionThreshold) {
+          digitalWrite(firePin, LOW);
+        }
+      }
+
+      else if (automaticMode == "burst") {
+        // TODO: implement burst mode
+      }
+
+      else {
+        goto continueShooting;
+      }
+    }
+  }
+
+  void sleep() {}
+};
+
 // ----------------------------------------------------------------------------
-// SETTINGS
+// SETTINGS & ADJUSTMENTS
 // ----------------------------------------------------------------------------
 
-int otaPort = 80;
-int touchDetectionThreshold = 18;
-int debounceCount = 10;
-int debounceDleayCounter = 0;
+const unsigned int otaPort = 80;
+const unsigned int touchDetectionThreshold = 18;
+const unsigned int debounceCount = 10;
+const unsigned int debounceDelayCounter = 0;
 int i = 0;
-
-// GPIO
-// input only
-const int shotSensorPin = 34;  // Read: 1 = Free, 0 = Interrupted
-const int triggerPin = 35;     // Read: 1 = Shoot, 0 = Stop
-// output only
-const int firePin = 33;  // Write 1 = enable relay = shoot, else stop
 
 // setting PWM properties
 const int freq = 5000;
@@ -58,11 +112,6 @@ const char* serverIndex =
     "type='file' name='update'><input type='submit' value='Update'></form>";
 
 // ----------------------------------------------------------------------------
-//  FUNCTION DECLARATIONS
-// ----------------------------------------------------------------------------
-void shoot();
-
-// ----------------------------------------------------------------------------
 // THREADS
 // ----------------------------------------------------------------------------
 pthread_t triggerThreadHandle;
@@ -75,7 +124,7 @@ SemaphoreHandle_t shotdetectionSemaphore;
 SemaphoreHandle_t shootSemaphore;
 SemaphoreHandle_t webServerSemaphore;
 
-pthread_mutex_t mutex;
+// pthread_mutex_t mutex;
 
 // pthread_mutex_lock(&mutex);
 // Serial.println("mutex locked");
@@ -95,9 +144,6 @@ int threadCreationResult;
 void setup() {
   // Serial SETUP
   Serial.begin(115200);
-
-  // pthread_create(&pthread_t, NULL, function_to_be_executed, void*
-  // input_argument)
 
   // GPIO SETUP
 
@@ -137,36 +183,11 @@ void setup() {
 void loop() {}
 
 // ----------------------------------------------------------------------------
-// Actions
-// ----------------------------------------------------------------------------
-void shoot(boolean state, String automaticMode = "") {  // automaticMode is an optional parameter
-  if (state) {
-    delay(triggerDebounceDelay / 2);  // debouncing here enables a simple if-else-conditoin before shooting
-    if (automaticMode == "semi") {    // registers one shot using speed sensor, delays to complete shot and stops
-      while (digitalRead(shotSensorPin) == HIGH) {
-        digitalWrite(firePin, HIGH);
-      }
-      delay(10);
-      digitalWrite(firePin, LOW);
-      Serial.printf("Shot once - %d\n", ++shotNumber);
-    } else if (automaticMode == "full") {  // shoots until either trigger is released or finger stopped touching trigger
-      while (digitalRead(triggerPin) == HIGH && touchRead(4) <= touchDetectionThreshold) {
-      continueShooting:
-        digitalWrite(firePin, HIGH);
-      }
-      delay(triggerDebounceDelay / 4);
-      if (digitalRead(triggerPin) == LOW || touchRead(4) >= touchDetectionThreshold) {
-        digitalWrite(firePin, LOW);
-      } else {
-        goto continueShooting;
-      }
-    }
-  }
-}
-
-// ----------------------------------------------------------------------------
 // Functions running as threads
+// ---
+// pthread_create(&pthread_t, NULL, function_to_be_executed, void* input_argument)
 // ----------------------------------------------------------------------------
+
 void* webServerThreadFunction(void* param) {
   // Webserver for OTA Updates
   MDNS.begin(WIFI_HOSTNAME);
@@ -238,7 +259,7 @@ void* shootThreadFunction(void* param) {
     if (touchRead(4) <= touchDetectionThreshold) {  // Trigger touched by skin
       if (digitalRead(triggerPin) == HIGH) {
         Serial.printf("touched and triggered - %d\n", i++);
-        shoot(true, "semi");
+        shoot(true, "semi-automatic");
       }
     }
   }
