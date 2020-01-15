@@ -7,8 +7,9 @@
 #include <WiFiClient.h>
 #include <WiFiServer.h>
 #include <WiFiUdp.h>
-// #include <esp_pthread.h>
 #include <pthread.h>
+#include <stdbool.h>
+#include <time.h>
 // #include <queue.h>
 // #include "task.h"
 // #include <FreeRTOS.h>
@@ -21,73 +22,189 @@
 using namespace softair;
 class Softair {
  public:
-  const unsigned short int shotSensorPin = 34;  // Read: 1 = Free, 0 = Interrupted
-  const unsigned short int triggerPin = 35;     // Read: 1 = Shoot, 0 = Stop
+  String manufacturer = "";
+  String brand = "";
+  String model = "";
 
-  const unsigned short int burstShootCount = 0;
+  const unsigned short int pistonSensorReadPin = 34;  // Read: 1 = infrared barrier free, 0 = IR interrupted
+  const unsigned short int triggerPullReadPin = 35;   // Read: 1 = Shoot, 0 = Stop
+  const unsigned short int triggerTouchReadPin = 4;
+
+  bool triggerEnabledByTouch = false;
+  bool triggerPulledByFinger = false;
+
+  const unsigned short int burstShootCount = 3;
+  const unsigned int touchDetectionThreshold = 18;
+  const unsigned int debounceCount = 10;
+  const unsigned short int debounceStableTimeUntilShoot = 10;  // Time for a button state to persist until it is considered as settled (not bouncing anymore)
 
   /**
     GPIO Pin which triggers shooting when HIGH.
-    Write 1 = enable relay = shoot, else stop
+    Write: 1 = enable relay, 0 = disable relay
   */
-  const unsigned short int firePin = 33;
+  const unsigned short int motorControlPin = 33;
 
-  // ----------------------------------------------------------------------------
+  // Constructor
+  Softair(string manufacturer, string brand, string model);
+
   // Actions
-  // ----------------------------------------------------------------------------
 
-  /**
-   * Function to shoot BB's.
-   * @param state shoots or stops shooting
-   * @param automaticMode sets shoot mode ("semi-automatic", "full-automatic", "burst")
-   */
-  void shoot(boolean state, String automaticMode = "") {  // automaticMode is an optional parameter
-    if (state) {
-      delay(triggerDebounceDelay / 2);  // debouncing here enables a simple if-else-conditoin before shooting
-      if (automaticMode ==
-          "semi-automatic") {  // registers one shot using speed sensor, delays to complete shot and stops
-        while (digitalRead(shotSensorPin) == HIGH) {
-          digitalWrite(firePin, HIGH);
+  void shoot(boolean state, String shootMode = "");  // sets ShootPin's output HUGH, shootMode is optional
+
+  // Threaded attributes and routines
+
+  void* setTriggerTouchedStateReactive(void* param);  // Trigger capacitive touch listener
+
+  void* setTriggerPulledStateReactive(void* param);  // Trigger pull listener
+
+  void* shootThreadFunction(void* param);
+
+  void* sleep(void* param);  // sleeping if softair idle for spec. seconds, wake on touch pin touched
+};
+
+// ----------------------------------------------------------------------------
+/**
+ * Implementation of declared Methods & Constructor following now
+ * Softair should be completely defined before Setup() kicks in as pins and functions declared in Softair Object are used by functions in Setup()
+ */
+// ----------------------------------------------------------------------------
+
+// ----------------------------------------------------------------------------
+// Softair Constructors
+// ----------------------------------------------------------------------------
+
+Softair::Softair(string manufacturer, string brand, string model) {
+  manufacturer = manufacturer;
+  brand = brand;
+  model = model;
+}
+
+// ----------------------------------------------------------------------------
+// Softair Methods (outside of class to keep the class clean and readable)
+// ----------------------------------------------------------------------------
+void Softair::shoot(boolean state, String shootMode = "") {
+  if (state) {
+    delay(triggerDebounceDelay / 2);      // debouncing here enables a simple if-else-conditoin before shooting
+    if (shootMode == "semi-automatic") {  // registers one shot using speed sensor, delays to complete shot and stops
+      while (digitalRead(pistonSensorReadPin) == HIGH) {
+        digitalWrite(motorControlPin, HIGH);
+      }
+      delay(10);
+      digitalWrite(motorControlPin, LOW);
+      Serial.printf("Shot once - %d\n", ++shotNumber);
+    }
+
+    else if (shootMode == "full-automatic") {  // shoots until either trigger is released or finger stopped touching trigger
+      while (digitalRead(triggerPullReadPin) == HIGH && touchRead(4) <= touchDetectionThreshold) {
+      continueShooting:
+        digitalWrite(motorControlPin, HIGH);
+      }
+      delay(triggerDebounceDelay / 4);
+      if (digitalRead(triggerPullReadPin) == LOW || touchRead(4) >= touchDetectionThreshold) {
+        digitalWrite(motorControlPin, LOW);
+      }
+    }
+
+    else if (shootMode == "burst") {
+      // TODO: implement burst mode
+
+    }
+
+    else {
+      goto continueShooting;
+    }
+  }
+}
+// ----------------------------------------------------------------------------
+// Threaded Stuff
+// ----------------------------------------------------------------------------
+
+void* Softair::setTriggerTouchedStateReactive(void* param) {
+  // Flags to prevent writing the value of setTriggerTouchedStateReactive over and over again while it is already
+  // enabled
+  bool setEnabledFlag = false;
+  bool setDisabledFlag = false;
+
+  while (true) {
+    if (touchRead(triggerTouchReadPin) >= touchDetectionThreshold && setEnabledFlag == false) {
+      triggerEnabledByTouch = true;
+      setEnabledFlag = true;
+      setDisabledFlag = false;
+      Serial.printf("Trigger Touching");
+    } else if (touchRead(triggerTouchReadPin) < touchDetectionThreshold && setDisabledFlag == false) {
+      triggerEnabledByTouch = true;
+      setEnabledFlag = false;
+      setDisabledFlag = true;
+      Serial.printf("Trigger Touching Stopped");
+    }
+    sleep(1);  // prevent rading touchPin too often by adding a sleep, unnoticeable by humans
+  }
+}
+
+void* Softair::setTriggerPulledStateReactive(void* param) {
+  // Flags to prevent writing the value of setTriggerTouchedStateReactive over and over again while it is already
+  // enabled
+  bool setEnabledFlag = false;
+  bool setDisabledFlag = false;
+  unsigned int currentCpuClockspeed = rtc_clk_cpu_freq_get();
+
+  clock_t startHigh;
+  clock_t endHigh;
+  clock_t startLow;
+  clock_t endLow;
+
+  while (true) {
+    if (triggerEnabledByTouch) {
+      startHigh = clock();
+      while (digitalRead(triggerPullReadPin) == HIGH) {                                               // Debouncing begins from here
+        if (((clock() - startHigh) * 1000 / currentCpuClockspeed) >= debounceStableTimeUntilShoot) {  // check if elapsed time == debounceStableTimeUntilShoot
         }
-        delay(10);
-        digitalWrite(firePin, LOW);
-        Serial.printf("Shot once - %d\n", ++shotNumber);
       }
-
-      else if (automaticMode ==
-               "full-automatic") {  // shoots until either trigger is released or finger stopped touching trigger
-        while (digitalRead(triggerPin) == HIGH && touchRead(4) <= touchDetectionThreshold) {
-        continueShooting:
-          digitalWrite(firePin, HIGH);
-        }
-        delay(triggerDebounceDelay / 4);
-        if (digitalRead(triggerPin) == LOW || touchRead(4) >= touchDetectionThreshold) {
-          digitalWrite(firePin, LOW);
-        }
-      }
-
-      else if (automaticMode == "burst") {
-        // TODO: implement burst mode
-      }
-
-      else {
-        goto continueShooting;
-      }
+      endHigh
     }
   }
 
-  void sleep() {}
-};
+  delay(triggerDebounceDelay / 2);      // debouncing here enables a simple if-else-conditoin before shooting
+  if (shootMode == "semi-automatic") {  // registers one shot using speed sensor, delays to complete shot and stops
+    while (digitalRead(pistonSensorReadPin) == HIGH) {
+      digitalWrite(motorControlPin, HIGH);
+    }
+    delay(10);
+    digitalWrite(motorControlPin, LOW);
+    Serial.printf("Shot once - %d\n", ++shotNumber);
+  }
+
+  else if (shootMode == "full-automatic") {  // shoots until either trigger is released or finger stopped touching trigger
+    while (digitalRead(triggerPullReadPin) == HIGH && touchRead(4) <= touchDetectionThreshold) {
+    continueShooting:
+      digitalWrite(motorControlPin, HIGH);
+    }
+    delay(triggerDebounceDelay / 4);
+    if (digitalRead(triggerPullReadPin) == LOW || touchRead(4) >= touchDetectionThreshold) {
+      digitalWrite(motorControlPin, LOW);
+    }
+  }
+}
+
+void* Softair::shootThreadFunction(void* param) {
+  while (true) {
+    if (touchRead(4) <= touchDetectionThreshold) {  // Trigger touched by skin
+      if (digitalRead(triggerPullReadPin) == HIGH) {
+        Serial.printf("touched and triggered - %d\n", i++);
+        shoot(true, "semi-automatic");
+      }
+    }
+  }
+}
+}
 
 // ----------------------------------------------------------------------------
 // SETTINGS & ADJUSTMENTS
 // ----------------------------------------------------------------------------
 
 const unsigned int otaPort = 80;
-const unsigned int touchDetectionThreshold = 18;
-const unsigned int debounceCount = 10;
-const unsigned int debounceDelayCounter = 0;
-int i = 0;
+
+unsigned int i = 0;
 
 // setting PWM properties
 const int freq = 5000;
@@ -118,6 +235,7 @@ pthread_t triggerThreadHandle;
 pthread_t shotdetectionThreadHandle;
 pthread_t shootThreadHandle;
 pthread_t webserverThreadHandle;
+pthread_t setTriggerTouchedStateReactiveThreadHandle;
 
 SemaphoreHandle_t triggerSemaphore;
 SemaphoreHandle_t shotdetectionSemaphore;
@@ -145,35 +263,43 @@ void setup() {
   // Serial SETUP
   Serial.begin(115200);
 
+  // Creating the Softair Object
+  Softair softair();  // creation first, so gpio setup can access its attributes
+
   // GPIO SETUP
 
   // shotsensor
   ledcSetup(shotChannel, freq, resolution);
-  ledcAttachPin(shotSensorPin, shotChannel);
-  pinMode(shotSensorPin, INPUT_PULLDOWN);
-  pinMode(triggerPin, INPUT_PULLDOWN);
-  pinMode(firePin, OUTPUT);
+  ledcAttachPin(softair.pistonSensorReadPin, shotChannel);
+  pinMode(softair.pistonSensorReadPin, INPUT_PULLDOWN);
+  pinMode(softair.triggerPullReadPin, INPUT_PULLDOWN);
+  pinMode(softair.motorControlPin, OUTPUT);
 
-  // Wifi Setup
+  // WIFI SETUP
   Serial.println("Waiting for Wifi.");
   WiFi.begin(WIFI_SSID, WIFI_PASSORD);
   while (WiFi.status() != WL_CONNECTED) {  // Wait for Wifi connection
   }
   Serial.printf("Connected to Wifi: %s\n", WIFI_SSID);
 
+  // THREADS SETUP
+
   // Thread configurations
   disableCore0WDT();
   disableCore1WDT();
 
   Serial.print("shotSensor state: normally");
-  Serial.println(digitalRead(shotSensorPin));
+  Serial.println(digitalRead(pistonSensorReadPin));
 
   // Thread Creations
-  if (pthread_create(&webserverThreadHandle, NULL, webServerThreadFunction, NULL) == 0) {
-    Serial.println("Thread WebServer successfully started");
+  if (pthread_create(&setTriggerTouchedStateReactiveThreadHandle, NULL, softair.setTriggerTouchedStateReactive, NULL) == 0) {
+    Serial.println("Thread setTriggerTouchedStateReactive successfully started");
   }
   if (pthread_create(&shootThreadHandle, NULL, shootThreadFunction, NULL) == 0) {
     Serial.println("Thread shootFunctionality successfully started");
+  }
+  if (pthread_create(&webserverThreadHandle, NULL, webServerThreadFunction, NULL) == 0) {
+    Serial.println("Thread WebServer successfully started");
   }
 }
 
@@ -254,18 +380,8 @@ void* webServerThreadFunction(void* param) {
   }
 }
 
-void* shootThreadFunction(void* param) {
-  while (true) {
-    if (touchRead(4) <= touchDetectionThreshold) {  // Trigger touched by skin
-      if (digitalRead(triggerPin) == HIGH) {
-        Serial.printf("touched and triggered - %d\n", i++);
-        shoot(true, "semi-automatic");
-      }
-    }
-  }
-}
-
 // Todo:
+// Fix String & string, boolean & bool
 
 // 3D Print barrel cover
 
