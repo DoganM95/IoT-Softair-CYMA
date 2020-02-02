@@ -55,14 +55,10 @@ class Softair {
   // Threaded reactive attributes / routines
 
   void* setTriggerTouchedStateReactive(void* param);  // Trigger capacitive touch listener
-
-  void* setTriggerPulledStateReactive(void* param);  // Trigger pull listener
-
-  void* shootOnTouchAndTrigger(void* param);  // Motor GPIO state setter
-
-  void* countShots(void* param);  // counts the interruptions between IR transmitter and receiver
-
-  void* setSystmSleepState(void* param);  // sleeping if softair idle for spec. seconds, wake on touch pin touched
+  void* setTriggerPulledStateReactive(void* param);   // Trigger pull listener
+  void* shootOnTouchAndTrigger(void* param);          // Motor GPIO state setter
+  void* countShots(void* param);                      // counts the interruptions between IR transmitter and receiver
+  void* setSystmSleepState(void* param);              // sleeping if softair idle for spec. seconds, wake on touch pin touched
 };
 
 // ----------------------------------------------------------------------------
