@@ -1,2 +1,3 @@
 .vscode
-/ESP32/Software/Credentials
+/**/Credentials/*
+!/**/Credentials/*_example.h
