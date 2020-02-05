@@ -26,26 +26,31 @@ class Softair {
   char brand[];
   char model[];
 
+  // GPIO Pins
   const unsigned short int pistonSensorReadPin = 34;  // Read: 1 = infrared barrier free, 0 = IR interrupted
   const unsigned short int triggerPullReadPin = 35;   // Read: 1 = Shoot, 0 = Stop
   const unsigned short int triggerTouchReadPin = 4;
   const unsigned short int motorControlPin = 33;  // HIGH = shoot
 
+  // States
   bool triggerEnabledByTouch = false;
   bool triggerPulledByFinger = false;
 
-  unsigned long int shotsFired = 0;
+  // Counters
+  unsigned long int shotsFired = 0;  // each counter only since boot, for permanent storage use a database or eeprom
+
+  // Configurations
   const unsigned short int burstShootCount = 3;
   const unsigned int touchDetectionThreshold = 18;
-  const unsigned int debounceCount = 10;
+  const unsigned int debounceCount = 10;                       // Should become obsolete with a good debounce implementation
   const unsigned short int debounceStableTimeUntilShoot = 10;  // Time for a button state to persist until it is considered as settled (not bouncing anymore)
 
   // Thread Adjustments
-  const short int threadSetTriggerTouchedStateRoutineSleepDuration = 1;  // in ms
-  const short int threadSetTriggerPulledStateRoutineSleepDuration = 1;   // in ms
-  const short int threadShootOnTouchAndTriggerRoutineSleepDuration = 1;  // in ms
+  const short int threadSetTriggerTouchedStateRoutineSleepDuration = 1;  // in ms (alters responsiveness)
+  const short int threadSetTriggerPulledStateRoutineSleepDuration = 1;   // in ms (alters responsiveness)
+  const short int threadShootOnTouchAndTriggerRoutineSleepDuration = 1;  // in ms (alters responsiveness)
 
-  // TODO: Rename Thread handlers accoring to thread names
+  // TODO: Rename Thread handlers according to thread names
   pthread_t triggerThreadHandle;
   pthread_t shotdetectionThreadHandle;
   pthread_t shootThreadHandle;
@@ -54,6 +59,13 @@ class Softair {
   SemaphoreHandle_t triggerSemaphore;
   SemaphoreHandle_t shotdetectionSemaphore;
   SemaphoreHandle_t shootSemaphore;
+
+  // PWM channels and settings
+  struct shotChannel {
+    const int freq = 5000;
+    const int shotChannel = 0;  // Shot Sensor
+    const int resolution = 8;   // 8 Bits resulting in 0-255 as Range for Duty Cycle
+  }
 
   // Constructor
   Softair(char* manufacturer, char* brand, char* model);
@@ -64,8 +76,8 @@ class Softair {
 
   // Threaded reactive attributes / routines
 
-  void* setTriggerTouchedStateRoutine(void* param);  // Trigger capacitive touch listener
-  void* setTriggerPulledStateRoutine(void* param);   // Trigger pull listener
+  void* setTriggerTouchedStateRoutine(void* param);  // Trigger's capacitive touch area listener
+  void* setTriggerPulledStateRoutine(void* param);   // Trigger's pull listener
   void* shootOnTouchAndTriggerRoutine(void* param);  // Motor GPIO state setter
   void* countShotsRoutine(void* param);              // counts the interruptions between IR transmitter and receiver
   void* setSystemSleepStateRoutine(void* param);     // sleeping if softair idle for spec. seconds, wake on touch pin touched
@@ -230,11 +242,6 @@ const unsigned int otaPort = 80;
 
 unsigned int i = 0;
 
-// setting PWM properties
-const int freq = 5000;
-const int shotChannel = 0;  // Shot Sensor
-const int resolution = 8;   // 8 Bits resulting in 0-255 as Range for Duty Cycle
-
 // Setting debounce delay for mechanical trigger switch/button
 int triggerDebounceDelay = 120;
 
@@ -285,8 +292,8 @@ void setup() {
   // GPIO SETUP
 
   // shotsensor
-  ledcSetup(shotChannel, freq, resolution);
-  ledcAttachPin(softair.pistonSensorReadPin, shotChannel);
+  ledcSetup(softair.shotChannel, softair.freq, softair.resolution);
+  ledcAttachPin(softair.pistonSensorReadPin, softair.shotChannel);
   pinMode(softair.pistonSensorReadPin, INPUT_PULLDOWN);
   pinMode(softair.triggerPullReadPin, INPUT_PULLDOWN);
   pinMode(softair.motorControlPin, OUTPUT);
@@ -396,15 +403,14 @@ void* webServerThreadFunction(void* param) {
 }
 
 // Todo:
-// Fix String & string, boolean & bool
-
 // 3D Print barrel cover
 
 // implement deepsleep mode (sleep when no shot is detected for 1 minute) and
-// connect led's to gpios, so glock lights up a red status led to inidcate
-// deepsleep and green when awake
+
+// add led's to look like a tritium sight (with configurable brightness?
+// using photoresistor?)
+
+// aim sight dots should light up red, as long as no finger is touching the tpuch pin,
+// green while touch pin is being touched by human skin and low blue, when in deepsleep mode
 
 // when touching the trigger, wake the esp from deepsleep mode
-
-// integrate led's to look like a tritium sight (with configurable brightness?
-// using photoresistor?)
