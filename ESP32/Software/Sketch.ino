@@ -11,15 +11,13 @@
 #include <stdbool.h>
 #include <time.h>
 // #include <queue.h>
-// #include "task.h"
-// #include <FreeRTOS.h>
 // #include <semphr.h>
 
 // Credentials
 #include "Credentials/OtaLogin.h"
 #include "Credentials/Wifi.h"
 
-using namespace softair;
+using namespace softairProject;
 class Softair {
  public:
   char manufacturer[];
@@ -51,14 +49,13 @@ class Softair {
   const short int threadShootOnTouchAndTriggerRoutineSleepDuration = 1;  // in ms (alters responsiveness)
 
   // TODO: Rename Thread handlers according to thread names
-  pthread_t triggerThreadHandle;
-  pthread_t shotdetectionThreadHandle;
-  pthread_t shootThreadHandle;
   pthread_t setTriggerTouchedStateRoutineThreadHandle;
+  pthread_t setTriggerPulledStateRoutineThreadHandle;
+  pthread_t shootOnTouchAndTriggerRoutineThreadHandle;
+  pthread_t countShotsRoutineThreadHandle;
+  pthread_t setSystemSleepStateRoutineThreadHandle;
 
-  SemaphoreHandle_t triggerSemaphore;
-  SemaphoreHandle_t shotdetectionSemaphore;
-  SemaphoreHandle_t shootSemaphore;
+  SemaphoreHandle_t exampleSemaphoreForPthreads;
 
   // PWM channels and settings
   struct shotChannel {
@@ -103,7 +100,7 @@ Softair::Softair(char* manufacturer, char* brand, char* model) {
 // ----------------------------------------------------------------------------
 // Softair Methods (outside of class to keep the class clean and readable)
 // ----------------------------------------------------------------------------
-void Softair::shoot(boolean state, char* shootMode = "") {
+void Softair::shoot(bool state, char* shootMode = "") {
   if (state) {
     delay(triggerDebounceDelay / 2);      // debouncing here enables a simple if-else-conditoin before shooting
     if (shootMode == "semi-automatic") {  // registers one shot using speed sensor, delays to complete shot and stops
@@ -291,7 +288,7 @@ void setup() {
 
   // GPIO SETUP
 
-  // shotsensor
+  // Shot sensor
   ledcSetup(softair.shotChannel, softair.freq, softair.resolution);
   ledcAttachPin(softair.pistonSensorReadPin, softair.shotChannel);
   pinMode(softair.pistonSensorReadPin, INPUT_PULLDOWN);
@@ -314,16 +311,24 @@ void setup() {
   Serial.print("shotSensor state: normally");
   Serial.println(digitalRead(softair.pistonSensorReadPin));
 
+  pthread_t countShotsRoutineThreadHandle;
+  pthread_t setSystemSleepStateRoutineThreadHandle;
+
   // Thread Creations
-  if (pthread_create(&softair.setTriggerTouchedStateRoutineThreadHandle, NULL, softair.setTriggerTouchedStateRoutine, NULL) == 0) {
-    Serial.println("Thread setTriggerTouchedStateRoutine successfully started");
-  }
-  if (pthread_create(&softair.shootThreadHandle, NULL, softair.shootOnTouchAndTriggerRoutine, NULL) == 0) {
-    Serial.println("Thread shootFunctionality successfully started");
-  }
-  if (pthread_create(&webserverThreadHandle, NULL, webServerThreadFunction, NULL) == 0) {
-    Serial.println("Thread WebServer successfully started");
-  }
+  Serial.println((pthread_create(&softair.setTriggerTouchedStateRoutineThreadHandle, NULL, softair.setTriggerTouchedStateRoutine, NULL) == 0)
+                     ? "Thread setTriggerTouchedStateRoutine successfully started"
+                     : "Failed");
+  Serial.println((pthread_create(&softair.setTriggerPulledStateRoutineThreadHandle, NULL, softair.setTriggerPulledStateRoutine, NULL) == 0)
+                     ? "Thread setTriggerPulledStateRoutine successfully started "
+                     : "Failed");
+  Serial.println((pthread_create(&softair.countShotsRoutineThreadHandle, NULL, softair.countShotsRoutine, NULL) == 0) ? "Thread countShotsRoutine successfully started" : "Failed");
+  Serial.println((pthread_create(&softair.shootOnTouchAndTriggerRoutineThreadHandle, NULL, softair.shootOnTouchAndTriggerRoutine, NULL) == 0)
+                     ? "Thread shootOnTouchAndTriggerRoutine successfully started"
+                     : "Failed");
+  Serial.println((pthread_create(&softair.setSystemSleepStateRoutineThreadHandle, NULL, softair.setSystemSleepStateRoutine, NULL) == 0)
+                     ? "Thread setSystemSleepStateRoutine successfully started       "
+                     : "Failed");
+  Serial.println((pthread_create(&webserverThreadHandle, NULL, webServerThreadFunction, NULL) == 0) ? "Thread WebServer successfully started" : "Failed");
 }
 
 // ----------------------------------------------------------------------------
@@ -341,7 +346,6 @@ void* webServerThreadFunction(void* param) {
   // Webserver for OTA Updates
   MDNS.begin(WIFI_HOSTNAME);
   ArduinoOTA.begin();
-
   server.on("/", []() {
     if (!server.authenticate(www_username, www_password)) {
       // Basic Auth Method with Custom realm and Failure Response
@@ -402,15 +406,19 @@ void* webServerThreadFunction(void* param) {
   }
 }
 
-// Todo:
-// 3D Print barrel cover
+// TODO: 3D Print barrel cover
 
-// implement deepsleep mode (sleep when no shot is detected for 1 minute) and
+// TODO: implement deepsleep mode (sleep when no shot is detected for 1 minute) and
 
-// add led's to look like a tritium sight (with configurable brightness?
+// TODO: add led's to look like a tritium sight (with configurable brightness?
 // using photoresistor?)
 
-// aim sight dots should light up red, as long as no finger is touching the tpuch pin,
+// TODO: aim sight dots should light up red, as long as no finger is touching the tpuch pin,
 // green while touch pin is being touched by human skin and low blue, when in deepsleep mode
 
-// when touching the trigger, wake the esp from deepsleep mode
+// TODO: when touching the trigger, wake the esp from deepsleep mode
+
+// TODO: export softair clas / methods etc and include in Sektch.ino to keep the sketch clean, header file should contain declerations only and cpp file the implementation
+// => header file gives an idea of how the system works
+
+// TODO: rewrite wifi connector to be threaded (offline data should be collected and pushed to connected platform as soon as connection is available again)
