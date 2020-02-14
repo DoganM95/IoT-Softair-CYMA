@@ -18,6 +18,7 @@
 #include "Credentials/Wifi.h"
 
 using namespace softairProject;
+
 class Softair {
  public:
   char manufacturer[];
@@ -38,8 +39,8 @@ class Softair {
   unsigned long int shotsFired = 0;  // each counter only since boot, for permanent storage use a database or eeprom
 
   // Configurations
-  const unsigned short int burstShootCount = 3;
-  const unsigned int touchDetectionThreshold = 18;
+  const unsigned short int burstShootCount = 3;                // Defines how many BB's to shoot in burst mode with one trigger pull
+  const unsigned int touchDetectionThreshold = 18;             // Adjustment of touch pin sensitivity
   const unsigned int debounceCount = 10;                       // Should become obsolete with a good debounce implementation
   const unsigned short int debounceStableTimeUntilShoot = 10;  // Time for a button state to persist until it is considered as settled (not bouncing anymore)
 
@@ -56,6 +57,7 @@ class Softair {
   pthread_t setSystemSleepStateRoutineThreadHandle;
 
   SemaphoreHandle_t exampleSemaphoreForPthreads;
+  pthread_mutex_t exampleMutexForThreads;
 
   // PWM channels and settings
   struct shotChannel {
@@ -125,10 +127,7 @@ void Softair::shoot(bool state, char* shootMode = "") {
 
     else if (shootMode == "burst") {
       // TODO: implement burst mode
-
-    }
-
-    else {
+    } else {
       goto continueShooting;
     }
   }
@@ -159,8 +158,7 @@ void* Softair::setTriggerTouchedStateRoutine(void* param) {
 }
 
 void* Softair::setTriggerPulledStateRoutine(void* param) {
-  // Flags to prevent writing the value of setTriggerTouchedStateRoutine over and over again while it is already
-  // enabled
+  // Flags to prevent writing the value of setTriggerTouchedStateRoutine over and over again while it is already enabled
   bool setEnabledFlag = false;
   bool setDisabledFlag = false;
   unsigned int currentCpuClockspeed = rtc_clk_cpu_freq_get();
@@ -181,7 +179,7 @@ void* Softair::setTriggerPulledStateRoutine(void* param) {
     }
   }
 
-  delay(triggerDebounceDelay / 2);      // debouncing here enables a simple if-else-conditoin before shooting
+  delay(triggerDebounceDelay / 2);      // debouncing here enables a simple if-else-condition before shooting
   if (shootMode == "semi-automatic") {  // registers one shot using speed sensor, delays to complete shot and stops
     while (digitalRead(pistonSensorReadPin) == HIGH) {
       digitalWrite(motorControlPin, HIGH);
@@ -210,7 +208,7 @@ void* Softair::shootOnTouchAndTriggerRoutine(void* param) {
       // TODO read shootMode first with digitalRead(buttonsResponsibleForShootMode)
 
       if (digitalRead(triggerPullReadPin) == HIGH) {
-        Serial.printf("touched and triggered - %d\n", i++);
+        Serial.printf("touched and triggered - %d\n", i++);  // TODO: change i to another var
         shoot(true, "semi-automatic");
       }
     }
@@ -237,16 +235,13 @@ void* Softair::countShotsRoutine(void* param) {
 // TODO: Migrate all these vars into softair class to keep the pre-setup clean
 const unsigned int otaPort = 80;
 
-unsigned int i = 0;
-
 // Setting debounce delay for mechanical trigger switch/button
 int triggerDebounceDelay = 120;
 
 int shotNumber = 0;  // TODO: DELETE (replace by shotsFired)
-int triggerNumber = 0;
 
 // WebServer
-// allows you to set the realm of authentication Default:"Login Required"
+// Allows setting the realm of authentication Default:"Login Required"
 const char* www_realm = "Custom Auth Realm";
 // the Content of the HTML response in case of Unautherized Access Default:empty
 String authFailResponse = "Authentication Failed";
@@ -262,19 +257,6 @@ const char* serverIndex =
 // TODO: clean up or use old threading methods (xTaskCreatePinnedToCore)
 pthread_t webserverThreadHandle;
 SemaphoreHandle_t webServerSemaphore;
-// pthread_mutex_t mutex;
-
-// pthread_mutex_lock(&mutex);
-// Serial.println("mutex locked");
-// pthread_mutex_unlock(&mutex);
-// Serial.println("mutex unlocked");
-
-xTaskHandle Task1;
-int threadCreationResult;
-// xTaskHandle Task2;
-
-// xTaskCreatePinnedToCore(&triggerThreadTask, "triggerThread", 10000, NULL, 1,
-//                         NULL, 0);
 
 // ----------------------------------------------------------------------------
 // SETUP
@@ -302,14 +284,10 @@ void setup() {
   }
   Serial.printf("Connected to Wifi: %s\n", WIFI_SSID);
 
-  // THREADS SETUP
+  // THREAD SETUP
 
-  // Thread configurations
   disableCore0WDT();  // Disable WatchDogTimeout, so threads can run as long as they want
-  disableCore1WDT();  // Same, but for the second core
-
-  Serial.print("shotSensor state: normally");
-  Serial.println(digitalRead(softair.pistonSensorReadPin));
+  disableCore1WDT();  // Same goes for the second core
 
   pthread_t countShotsRoutineThreadHandle;
   pthread_t setSystemSleepStateRoutineThreadHandle;
@@ -339,7 +317,7 @@ void loop() {}
 // ----------------------------------------------------------------------------
 // Functions running as threads
 // ---
-// pthread_create(&pthread_t, NULL, function_to_be_executed, void* input_argument)
+// pthread_create(&pthread_t, NULL, callback_function, type * input_argument)
 // ----------------------------------------------------------------------------
 
 void* webServerThreadFunction(void* param) {
@@ -399,7 +377,6 @@ void* webServerThreadFunction(void* param) {
   server.begin();
   MDNS.addService("http", "tcp", otaPort);
   Serial.printf("Open http://%s:%i\n", WiFi.localIP(), otaPort);
-
   while (true) {
     server.handleClient();
     ArduinoOTA.handle();
@@ -421,4 +398,20 @@ void* webServerThreadFunction(void* param) {
 // TODO: export softair clas / methods etc and include in Sektch.ino to keep the sketch clean, header file should contain declerations only and cpp file the implementation
 // => header file gives an idea of how the system works
 
-// TODO: rewrite wifi connector to be threaded (offline data should be collected and pushed to connected platform as soon as connection is available again)
+// TODO: rewrite wifi connector to be threaded and non-blocking (offline data should be collected and pushed to connected platform as soon as connection is available again)
+
+// TODO: Switch to ssl secured webserver and create self signed certificates to secure identity
+
+// --------------------------------------------------------------------------------------------------------------------------------------------------------
+// CONCEPTS to check
+// --------------------------------------------------------------------------------------------------------------------------------------------------------
+
+// pthread_mutex_t mutex;
+
+// pthread_mutex_lock(&mutex);
+// Serial.println("mutex locked");
+// pthread_mutex_unlock(&mutex);
+// Serial.println("mutex unlocked");
+
+// xTaskHandle Task1;
+// xTaskCreatePinnedToCore(&triggerThreadTask, "triggerThread", 10000, NULL, 1, NULL, 0);
