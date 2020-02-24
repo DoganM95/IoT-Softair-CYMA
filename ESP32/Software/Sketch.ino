@@ -9,7 +9,9 @@
 #include <WiFiUdp.h>
 #include <pthread.h>
 #include <stdbool.h>
+#include <string.h>
 #include <time.h>
+#include <string>
 // #include <queue.h>
 // #include <semphr.h>
 
@@ -17,13 +19,13 @@
 #include "Credentials/OtaLogin.h"
 #include "Credentials/Wifi.h"
 
-using namespace softairProject;
+using namespace std;
 
 class Softair {
  public:
-  char manufacturer[];
-  char brand[];
-  char model[];
+  string manufacturer;
+  string brand;
+  string model;
 
   // GPIO Pins
   const unsigned short int pistonSensorReadPin = 34;  // Read: 1 = infrared barrier free, 0 = IR interrupted
@@ -31,12 +33,19 @@ class Softair {
   const unsigned short int triggerTouchReadPin = 4;
   const unsigned short int motorControlPin = 33;  // HIGH = shoot
 
+  // PWM channels and settings
+  const int freq = 5000;
+  const int shotChannel = 0;  // Shot Sensor
+  const int resolution = 8;   // 8 Bits resulting in 0-255 as Range for Duty Cycle
+
   // States
   bool triggerEnabledByTouch = false;
   bool triggerPulledByFinger = false;
 
   // Counters
   unsigned long int shotsFired = 0;  // each counter only since boot, for permanent storage use a database or eeprom
+  // Setting debounce delay for mechanical trigger switch/button
+  int triggerDebounceDelay = 120;
 
   // Configurations
   const unsigned short int burstShootCount = 3;                // Defines how many BB's to shoot in burst mode with one trigger pull
@@ -59,19 +68,12 @@ class Softair {
   SemaphoreHandle_t exampleSemaphoreForPthreads;
   pthread_mutex_t exampleMutexForThreads;
 
-  // PWM channels and settings
-  struct shotChannel {
-    const int freq = 5000;
-    const int shotChannel = 0;  // Shot Sensor
-    const int resolution = 8;   // 8 Bits resulting in 0-255 as Range for Duty Cycle
-  }
-
   // Constructor
-  Softair(char* manufacturer, char* brand, char* model);
+  Softair(string manufacturer, string brand, string model);
 
   // Actions
 
-  void shoot(bool state, char* shootMode = "");  // sets ShootPin's output HUGH, shootMode is optional
+  void shoot(bool state, string shootMode);  // sets ShootPin's output HUGH, shootMode is optional
 
   // Threaded reactive attributes / routines
 
@@ -93,7 +95,7 @@ class Softair {
 // Softair Constructors
 // ----------------------------------------------------------------------------
 
-Softair::Softair(char* manufacturer, char* brand, char* model) {
+Softair::Softair(string manufacturer, string brand, string model) {
   manufacturer = manufacturer;
   brand = brand;
   model = model;
@@ -102,7 +104,7 @@ Softair::Softair(char* manufacturer, char* brand, char* model) {
 // ----------------------------------------------------------------------------
 // Softair Methods (outside of class to keep the class clean and readable)
 // ----------------------------------------------------------------------------
-void Softair::shoot(bool state, char* shootMode = "") {
+void Softair::shoot(bool state, string shootMode = "") {
   if (state) {
     delay(triggerDebounceDelay / 2);      // debouncing here enables a simple if-else-conditoin before shooting
     if (shootMode == "semi-automatic") {  // registers one shot using speed sensor, delays to complete shot and stops
@@ -153,7 +155,7 @@ void* Softair::setTriggerTouchedStateRoutine(void* param) {
       setDisabledFlag = true;
       Serial.printf("Trigger Touching Stopped");
     }
-    sleep(threadSetTriggerTouchedStateRoutineSleepDuration);  // time to sleep between each iteration
+    delay(threadSetTriggerTouchedStateRoutineSleepDuration);  // time to sleep between each iteration
   }
 }
 
@@ -175,7 +177,7 @@ void* Softair::setTriggerPulledStateRoutine(void* param) {
         if (((clock() - startHigh) * 1000 / currentCpuClockspeed) >= debounceStableTimeUntilShoot) {  // check if elapsed time == debounceStableTimeUntilShoot
         }
       }
-      endHigh
+      // endHigh;
     }
   }
 
@@ -212,7 +214,7 @@ void* Softair::shootOnTouchAndTriggerRoutine(void* param) {
         shoot(true, "semi-automatic");
       }
     }
-    sleep(threadShootOnTouchAndTriggerRoutineSleepDuration);  // time to sleep between each iteration
+    delay(threadShootOnTouchAndTriggerRoutineSleepDuration);  // time to sleep between each iteration
   }
 }
 
@@ -234,9 +236,6 @@ void* Softair::countShotsRoutine(void* param) {
 
 // TODO: Migrate all these vars into softair class to keep the pre-setup clean
 const unsigned int otaPort = 80;
-
-// Setting debounce delay for mechanical trigger switch/button
-int triggerDebounceDelay = 120;
 
 int shotNumber = 0;  // TODO: DELETE (replace by shotsFired)
 
@@ -266,9 +265,7 @@ void setup() {
   Serial.begin(115200);
 
   // Creating the Softair Object
-  Softair softair();  // creation first, so gpio setup can access its attributes
-
-  // GPIO SETUP
+  Softair softair("Cyma", "Glock", "18C");  // creation first, so gpio setup can access its attributes
 
   // Shot sensor
   ledcSetup(softair.shotChannel, softair.freq, softair.resolution);
@@ -288,9 +285,6 @@ void setup() {
 
   disableCore0WDT();  // Disable WatchDogTimeout, so threads can run as long as they want
   disableCore1WDT();  // Same goes for the second core
-
-  pthread_t countShotsRoutineThreadHandle;
-  pthread_t setSystemSleepStateRoutineThreadHandle;
 
   // Thread Creations
   Serial.println((pthread_create(&softair.setTriggerTouchedStateRoutineThreadHandle, NULL, softair.setTriggerTouchedStateRoutine, NULL) == 0)
