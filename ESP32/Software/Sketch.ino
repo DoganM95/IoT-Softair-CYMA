@@ -394,7 +394,7 @@ void* webServerThreadFunction(void* param) {
       // Digest Auth Method with Custom realm and Failure Response
       return server.requestAuthentication(DIGEST_AUTH, www_realm, authFailResponse);
     }
-    server.sendHeader("Connection, lel", "close");
+    server.sendHeader("Connection", "lel", "close");
     server.send(200, "text/html", serverIndex);
     server.on("/", HTTP_GET, []() {
       server.sendHeader("Connection", "close");
