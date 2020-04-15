@@ -1,4 +1,5 @@
-// Libraries
+// Librararies
+#include <Adafruit_NeoPixel.h>
 #include <ArduinoOTA.h>
 #include <ESPmDNS.h>
 #include <Update.h>
@@ -10,6 +11,7 @@
 #include <pthread.h>
 #include <stdbool.h>
 #include <time.h>
+// #include <Adafruit_NeoPixel>
 
 // #include <queue.h>
 // #include <semphr.h>
@@ -31,6 +33,7 @@ class Softair {
   static const unsigned short int triggerPullReadPin = 32;   // Read: 1 = Shoot, 0 = Stop
   static const unsigned short int triggerTouchReadPin = 4;
   static const unsigned short int motorControlPin = 33;  // HIGH = shoot
+  static const unsigned short int neoPixelPin = 23;
 
   // PWM channels and settings
   static const int freq = 5000;
@@ -57,7 +60,7 @@ class Softair {
   // Thread Adjustments
   static const short int threadSetTriggerTouchedStateRoutineSleepDuration = 100;  // in ms (alters responsiveness)
   static const short int threadSetTriggerPulledStateRoutineSleepDuration = 100;   // in ms (alters responsiveness)
-  static const short int threadShootOnTouchAndTriggerRoutineSleepDuration = 1;    // in ms (alters responsiveness)
+  static const short int threadShootOnTouchAndTriggerRoutineSleepDuration = 100;  // in ms (alters responsiveness)
 
   // TODO: Rename Thread handlers according to thread names
   pthread_t setTriggerTouchedStateRoutineThreadHandle;
@@ -74,7 +77,7 @@ class Softair {
 
   // Actions
 
-  static void shoot(bool state, const char* shootMode);  // sets ShootPin's output HUGH, shootMode is optional
+  static void shoot(bool state, char* shootMode);  // sets ShootPin's output HUGH, shootMode is optional
 
   // Threaded reactive attributes / routines
 
@@ -91,6 +94,7 @@ bool Softair::triggerPulledByFinger = false;
 unsigned long int Softair::shotsFired = 0;
 char* Softair::fireMode = "semi-automatic";
 unsigned int Softair::triggerTouchValue = 0;
+Adafruit_NeoPixel pixels = Adafruit_NeoPixel(4, Softair::neoPixelPin, NEO_GRB + NEO_KHZ800);
 
 // ----------------------------------------------------------------------------
 // Softair Constructors
@@ -105,16 +109,32 @@ Softair::Softair(const char* manufacturer, const char* brand, const char* model)
 // ----------------------------------------------------------------------------
 // Softair Methods (outside of class to keep the class clean and readable)
 // ----------------------------------------------------------------------------
-void Softair::shoot(bool state, const char* shootMode = "") {
+void Softair::shoot(bool state, char* shootMode = "") {
+  unsigned int duration = 0;
+  unsigned int shots = 0;
+
   if (state) {
-    delay(triggerDebounceDelay / 2);      // debouncing here enables a simple if-else-conditoin before shooting
-    if (shootMode == "semi-automatic") {  // registers one shot using speed sensor, delays to complete shot and stops
-      while (digitalRead(pistonSensorReadPin) == HIGH) {
-        digitalWrite(motorControlPin, HIGH);
+    if (shootMode == "semi-automatic") {
+      digitalWrite(motorControlPin, HIGH);
+      while (digitalRead(pistonSensorReadPin) == 1) {  // while infrared barrier is not blocked, wait
+        delay(1);                                      // FIXME: needs to be replaced by a time check
+        duration++;
+        if (duration >= 3000) {
+          goto skipCounterCausedByBarrierError;
+          break;  // security mechanism to stop shooting after x ms (in case of sensor failure)}
+        }
       }
-      delay(10);
-      digitalWrite(motorControlPin, LOW);
-      // Serial.printf("Shot once - %d\n", ++shotsFired);
+
+      shotsFired++;
+    skipCounterCausedByBarrierError:
+      digitalWrite(motorControlPin, LOW);  // on infrared barrier blocked, cut motor electricity
+    }
+
+    else if (shootMode == "burst") {
+      digitalWrite(motorControlPin, HIGH);
+      while (digitalRead(pistonSensorReadPin) == 1) {
+        delay(1);
+      }
     }
 
     else if (shootMode == "full-automatic") {  // shoots until either trigger is released or finger stopped touching trigger
@@ -125,14 +145,13 @@ void Softair::shoot(bool state, const char* shootMode = "") {
       delay(triggerDebounceDelay / 4);
       if (digitalRead(triggerPullReadPin) == LOW || touchRead(4) >= touchDetectionThreshold) {
         digitalWrite(motorControlPin, LOW);
+      } else {
+        goto continueShooting;
       }
     }
 
-    else if (shootMode == "burst") {
-      // TODO: implement burst mode
-    } else {
-      goto continueShooting;
-    }
+  } else {
+    digitalWrite(motorControlPin, LOW);
   }
 }
 // ----------------------------------------------------------------------------
@@ -166,6 +185,7 @@ void* Softair::setTriggerPulledStateRoutine(void* param) {
   bool setEnabledFlag = false;
   bool setDisabledFlag = false;
   bool touchFlag = false;
+
   unsigned int timerLow = 0;
   unsigned int timerHigh = 0;
   unsigned int timeoutTimer = 0;
@@ -202,94 +222,39 @@ void* Softair::setTriggerPulledStateRoutine(void* param) {
         }
         delay(1);
       }
+
     } else if (!triggerEnabledByTouch) {
-      setEnabledFlag = false;
-      setDisabledFlag = false;
+      // setEnabledFlag = false;
+      // setDisabledFlag = false;
       touchFlag = false;
       triggerPulledByFinger = false;
       Serial.printf("pullThread - stopped Touching Trigger: %d\n", triggerTouchValue);
     }
 
-    // if (Softair::triggerEnabledByTouch && digitalRead(triggerPullReadPin) == HIGH && setEnabledFlag == false) {  // trigger pull initiated
-    //   setEnabledFlag = true;
-    //   Serial.printf("touching, trigger pulling initiated.\n");
-    //   timeoutTimer = 0;
-    // resetBouncing:
-    //   Serial.printf("Resetting timer to 0\n");
-    //   timer = 0;
-    //   timeoutTimer++;
-
-    //   while (timer <= debounceStableTimeUntilShoot || timeoutTimer < debounceTimeout) {  // debouncing part
-    //     if (digitalRead(triggerPullReadPin) == HIGH) {
-    //       timer++;
-    //       Serial.printf("increasing pulled timer: %d\n", timer);
-    //     } else {
-    //       goto resetBouncing;
-    //     }
-    //     delay(triggerDebounceDelay);
-    //     Serial.printf("Timeout Timer: %d\n", timeoutTimer);
-    //   }
-
-    //   if (timeoutTimer < debounceTimeout) {
-    //     Serial.printf("debounced successfully: timer = %d, timeoutTimer = %d\n", timer, timeoutTimer);
-    //     Softair::triggerPulledByFinger = true;
-    //   }
-    // } else {
-    //   setEnabledFlag = false;
-    // }
-
     delay(Softair::threadSetTriggerPulledStateRoutineSleepDuration);
   }
-
-  // delay(triggerDebounceDelay / 2);      // debouncing here enables a simple if-else-condition before shooting
-  // if (shootMode == "semi-automatic") {  // registers one shot using speed sensor, delays to complete shot and stops
-  //   while (digitalRead(pistonSensorReadPin) == HIGH) {
-  //     digitalWrite(motorControlPin, HIGH);
-  //   }
-  //   delay(10);
-  //   digitalWrite(motorControlPin, LOW);
-  //   Serial.printf("Shot once - %d\n", ++shotsFired);
-  // }
-
-  // else if (shootMode == "full-automatic") {  // shoots until either trigger is released or finger stopped touching trigger
-  //   while (digitalRead(triggerPullReadPin) == HIGH && touchRead(4) <= touchDetectionThreshold) {
-  //   continueShooting:
-  //     digitalWrite(motorControlPin, HIGH);
-  //   }
-  //   delay(triggerDebounceDelay / 4);
-  //   if (digitalRead(triggerPullReadPin) == LOW || touchRead(4) >= touchDetectionThreshold) {
-  //     digitalWrite(motorControlPin, LOW);
-  //   }
-  // }
 }
 
 void* Softair::shootOnTouchAndTriggerRoutine(void* param) {
-  long int i = 0;
   while (true) {
-    if (touchRead(4) <= touchDetectionThreshold) {  // Trigger touched by skin
-
-      // TODO read shootMode first with digitalRead(buttonsResponsibleForShootMode)
-
-      if (digitalRead(triggerPullReadPin) == HIGH) {
-        Serial.printf("touched and triggered - %d\n", i++);  // TODO: change i to another var
-        shoot(true, "semi-automatic");
-      }
+    if (Softair::triggerEnabledByTouch && Softair::triggerPulledByFinger) {
+      shoot(true, fireMode);
     }
     delay(threadShootOnTouchAndTriggerRoutineSleepDuration);  // time to sleep between each iteration
   }
 }
 
-void* Softair::countShotsRoutine(void* param) {
-  bool incrementedCountFlag = false;
-  while (true) {
-    if (digitalRead(pistonSensorReadPin) == 0 && incrementedCountFlag == false) {
-      // shotsFired++;
-      while (digitalRead(pistonSensorReadPin) == 0) {
-        delay(1);  // wait until piston leaves the barrier to prevent multiple increasements in one shot
-      }
-    }
-  }
-}
+// void* Softair::countShotsRoutine(void* param) {
+//   bool incrementedCountFlag = false;
+//   while (true) {
+//     if (digitalRead(pistonSensorReadPin) == 0 && incrementedCountFlag == false) {
+//       // shotsFired++;
+//       while (digitalRead(pistonSensorReadPin) == 0) {
+//         delay(1);  // wait until piston leaves the barrier to prevent multiple increasements in one shot
+//       }
+//     }
+//   }
+// }
 
 void* Softair::setSystemSleepStateRoutine(void* param) {}
 
@@ -337,6 +302,13 @@ void setup() {
 
   Serial.printf("initial touch: %d, initial pull: %d\n", touchRead(Softair::triggerTouchReadPin), digitalRead(Softair::triggerPullReadPin));
 
+  pixels.begin();
+  pixels.setPixelColor(3, pixels.Color(100, 0, 0));
+  pixels.setPixelColor(2, pixels.Color(0, 100, 0));
+  pixels.setPixelColor(1, pixels.Color(0, 0, 100));
+  pixels.setPixelColor(0, pixels.Color(100, 100, 100));
+  pixels.show();
+
   // WIFI SETUP
   unsigned short int counter = 0;
   if (WiFi.status() != WL_CONNECTED) {
@@ -360,11 +332,15 @@ void setup() {
   disableCore0WDT();  // Disable WatchDogTimeout, so threads can run as long as they want
   disableCore1WDT();  // Same goes for the second core
 
-  // Thread Creations
-  if (pthread_create(&gun.setTriggerTouchedStateRoutineThreadHandle, NULL, gun.setTriggerTouchedStateRoutine, NULL) == 0)
-    Serial.println("Thread setTriggerTouchedStateRoutine successfully started\n");
-  else
-    Serial.println("Thread setTriggerTouchedStateRoutine Failed\n");
+  delay(5000);
+  Serial.printf("%s\n", time());
+
+  gettimeofday time asctime clock ctime difftime gmtime localtime mktime strftime
+
+      // Thread Creations
+      if (pthread_create(&gun.setTriggerTouchedStateRoutineThreadHandle, NULL, gun.setTriggerTouchedStateRoutine, NULL) == 0)
+          Serial.println("Thread setTriggerTouchedStateRoutine successfully started\n");
+  else Serial.println("Thread setTriggerTouchedStateRoutine Failed\n");
 
   if (pthread_create(&gun.setTriggerPulledStateRoutineThreadHandle, NULL, gun.setTriggerPulledStateRoutine, NULL) == 0)
     Serial.println("Thread setTriggerPulledStateRoutine successfully started\n");
@@ -376,10 +352,10 @@ void setup() {
   // else
   //   Serial.println("Thread countShotsRoutine failed");
 
-  // if (pthread_create(&gun.shootOnTouchAndTriggerRoutineThreadHandle, NULL, gun.shootOnTouchAndTriggerRoutine, NULL) == 0)
-  //   Serial.println("Thread shootOnTouchAndTriggerRoutine successfully started");
-  // else
-  //   Serial.println("Thread shootOnTouchAndTriggerRoutine failed");
+  if (pthread_create(&gun.shootOnTouchAndTriggerRoutineThreadHandle, NULL, gun.shootOnTouchAndTriggerRoutine, NULL) == 0)
+    Serial.println("Thread shootOnTouchAndTriggerRoutine successfully started");
+  else
+    Serial.println("Thread shootOnTouchAndTriggerRoutine failed");
 
   // if (pthread_create(&gun.setSystemSleepStateRoutineThreadHandle, NULL, gun.setSystemSleepStateRoutine, NULL) == 0)
   //   Serial.println("Thread setSystemSleepStateRoutine successfully started");
@@ -424,38 +400,39 @@ void* webServerThreadFunction(void* param) {
       server.sendHeader("Connection", "close");
       server.send(200, "text/html", serverIndex);
     });
-    server.on("/update", HTTP_POST,
-              []() {
-                server.sendHeader("Connection", "close");
-                server.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
-                ESP.restart();
-              },
-              []() {
-                HTTPUpload& upload = server.upload();
-                if (upload.status == UPLOAD_FILE_START) {
-                  Serial.setDebugOutput(true);
-                  Serial.printf("Update: %s\n", upload.filename.c_str());
-                  if (!Update.begin()) {  // start with max available size
-                    Update.printError(Serial);
-                  }
-                } else if (upload.status == UPLOAD_FILE_WRITE) {
-                  if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
-                    Update.printError(Serial);
-                  }
-                } else if (upload.status == UPLOAD_FILE_END) {
-                  if (Update.end(true)) {  // true to set the size to the current progress
-                    Serial.printf("Update Success: %u\nRebooting...\n", upload.totalSize);
-                  } else {
-                    Update.printError(Serial);
-                  }
-                  Serial.setDebugOutput(false);
-                } else {
-                  Serial.printf(
-                      "Update Failed Unexpectedly (likely broken connection): "
-                      "status=%d\n",
-                      upload.status);
-                }
-              });
+    server.on(
+        "/update", HTTP_POST,
+        []() {
+          server.sendHeader("Connection", "close");
+          server.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
+          ESP.restart();
+        },
+        []() {
+          HTTPUpload& upload = server.upload();
+          if (upload.status == UPLOAD_FILE_START) {
+            Serial.setDebugOutput(true);
+            Serial.printf("Update: %s\n", upload.filename.c_str());
+            if (!Update.begin()) {  // start with max available size
+              Update.printError(Serial);
+            }
+          } else if (upload.status == UPLOAD_FILE_WRITE) {
+            if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+              Update.printError(Serial);
+            }
+          } else if (upload.status == UPLOAD_FILE_END) {
+            if (Update.end(true)) {  // true to set the size to the current progress
+              Serial.printf("Update Success: %u\nRebooting...\n", upload.totalSize);
+            } else {
+              Update.printError(Serial);
+            }
+            Serial.setDebugOutput(false);
+          } else {
+            Serial.printf(
+                "Update Failed Unexpectedly (likely broken connection): "
+                "status=%d\n",
+                upload.status);
+          }
+        });
   });
   server.begin();
   MDNS.addService("http", "tcp", otaPort);
