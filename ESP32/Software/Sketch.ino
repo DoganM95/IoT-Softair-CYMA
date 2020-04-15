@@ -9,9 +9,8 @@
 #include <WiFiUdp.h>
 #include <pthread.h>
 #include <stdbool.h>
-#include <string.h>
 #include <time.h>
-#include <string>
+
 // #include <queue.h>
 // #include <semphr.h>
 
@@ -19,44 +18,46 @@
 #include "Credentials/OtaLogin.h"
 #include "Credentials/Wifi.h"
 
-using namespace std;
+// using namespace std;
 
 class Softair {
  public:
-  string manufacturer;
-  string brand;
-  string model;
+  char* manufacturer;
+  char* brand;
+  char* model;
 
   // GPIO Pins
-  const unsigned short int pistonSensorReadPin = 34;  // Read: 1 = infrared barrier free, 0 = IR interrupted
-  const unsigned short int triggerPullReadPin = 35;   // Read: 1 = Shoot, 0 = Stop
-  const unsigned short int triggerTouchReadPin = 4;
-  const unsigned short int motorControlPin = 33;  // HIGH = shoot
+  static const unsigned short int pistonSensorReadPin = 34;  // Read: 1 = infrared barrier free, 0 = IR interrupted
+  static const unsigned short int triggerPullReadPin = 32;   // Read: 1 = Shoot, 0 = Stop
+  static const unsigned short int triggerTouchReadPin = 4;
+  static const unsigned short int motorControlPin = 33;  // HIGH = shoot
 
   // PWM channels and settings
-  const int freq = 5000;
-  const int shotChannel = 0;  // Shot Sensor
-  const int resolution = 8;   // 8 Bits resulting in 0-255 as Range for Duty Cycle
-
-  // States
-  bool triggerEnabledByTouch = false;
-  bool triggerPulledByFinger = false;
+  static const int freq = 5000;
+  static const int shotChannel = 0;  // Shot Sensor
+  static const int resolution = 8;   // 8 Bits resulting in 0-255 as Range for Duty Cycle
 
   // Counters
-  unsigned long int shotsFired = 0;  // each counter only since boot, for permanent storage use a database or eeprom
+  static unsigned long int shotsFired;  // each counter only since boot, for permanent storage use a database or eeprom
   // Setting debounce delay for mechanical trigger switch/button
-  int triggerDebounceDelay = 120;
+  static const int triggerDebounceDelay = 1;
 
   // Configurations
-  const unsigned short int burstShootCount = 3;                // Defines how many BB's to shoot in burst mode with one trigger pull
-  const unsigned int touchDetectionThreshold = 18;             // Adjustment of touch pin sensitivity
-  const unsigned int debounceCount = 10;                       // Should become obsolete with a good debounce implementation
-  const unsigned short int debounceStableTimeUntilShoot = 10;  // Time for a button state to persist until it is considered as settled (not bouncing anymore)
+  static const unsigned short int burstShootCount = 3;                // Defines how many BB's to shoot in burst mode with one trigger pull
+  static const unsigned int touchDetectionThreshold = 18;             // Adjustment of touch pin sensitivity
+  static const unsigned short int debounceStableTimeUntilShoot = 10;  // Time for a button state to persist until it is considered as settled (not bouncing anymore)
+  static const unsigned short int debounceTimeout = 100;              // Time in ms, after which the current trigger process is cancelled
+  static char* fireMode;
+
+  // States / vars
+  static bool triggerEnabledByTouch;
+  static bool triggerPulledByFinger;
+  static unsigned int triggerTouchValue;
 
   // Thread Adjustments
-  const short int threadSetTriggerTouchedStateRoutineSleepDuration = 1;  // in ms (alters responsiveness)
-  const short int threadSetTriggerPulledStateRoutineSleepDuration = 1;   // in ms (alters responsiveness)
-  const short int threadShootOnTouchAndTriggerRoutineSleepDuration = 1;  // in ms (alters responsiveness)
+  static const short int threadSetTriggerTouchedStateRoutineSleepDuration = 100;  // in ms (alters responsiveness)
+  static const short int threadSetTriggerPulledStateRoutineSleepDuration = 100;   // in ms (alters responsiveness)
+  static const short int threadShootOnTouchAndTriggerRoutineSleepDuration = 1;    // in ms (alters responsiveness)
 
   // TODO: Rename Thread handlers according to thread names
   pthread_t setTriggerTouchedStateRoutineThreadHandle;
@@ -69,33 +70,33 @@ class Softair {
   pthread_mutex_t exampleMutexForThreads;
 
   // Constructor
-  Softair(string manufacturer, string brand, string model);
+  Softair(const char* manufacturer, const char* brand, const char* model);
 
   // Actions
 
-  void shoot(bool state, string shootMode);  // sets ShootPin's output HUGH, shootMode is optional
+  static void shoot(bool state, const char* shootMode);  // sets ShootPin's output HUGH, shootMode is optional
 
   // Threaded reactive attributes / routines
 
-  void* setTriggerTouchedStateRoutine(void* param);  // Trigger's capacitive touch area listener
-  void* setTriggerPulledStateRoutine(void* param);   // Trigger's pull listener
-  void* shootOnTouchAndTriggerRoutine(void* param);  // Motor GPIO state setter
-  void* countShotsRoutine(void* param);              // counts the interruptions between IR transmitter and receiver
-  void* setSystemSleepStateRoutine(void* param);     // sleeping if softair idle for spec. seconds, wake on touch pin touched
+  static void* setTriggerTouchedStateRoutine(void* param);  // Trigger's capacitive touch area listener
+  static void* setTriggerPulledStateRoutine(void* param);   // Trigger's pull listener
+  static void* shootOnTouchAndTriggerRoutine(void* param);  // Motor GPIO state setter
+  static void* countShotsRoutine(void* param);              // counts the interruptions between IR transmitter and receiver
+  static void* setSystemSleepStateRoutine(void* param);     // sleeping if gun idle for spec. seconds, wake on touch pin touched
 };
 
-// ----------------------------------------------------------------------------
-/**
- * Implementation of declared Methods & Constructors:
- * Softair should be completely defined before Setup() kicks in, as pins and functions declared in Softair Object are used by functions in Setup()
- */
-// ----------------------------------------------------------------------------
+// SETUP
+bool Softair::triggerEnabledByTouch = false;
+bool Softair::triggerPulledByFinger = false;
+unsigned long int Softair::shotsFired = 0;
+char* Softair::fireMode = "semi-automatic";
+unsigned int Softair::triggerTouchValue = 0;
 
 // ----------------------------------------------------------------------------
 // Softair Constructors
 // ----------------------------------------------------------------------------
 
-Softair::Softair(string manufacturer, string brand, string model) {
+Softair::Softair(const char* manufacturer, const char* brand, const char* model) {
   manufacturer = manufacturer;
   brand = brand;
   model = model;
@@ -104,7 +105,7 @@ Softair::Softair(string manufacturer, string brand, string model) {
 // ----------------------------------------------------------------------------
 // Softair Methods (outside of class to keep the class clean and readable)
 // ----------------------------------------------------------------------------
-void Softair::shoot(bool state, string shootMode = "") {
+void Softair::shoot(bool state, const char* shootMode = "") {
   if (state) {
     delay(triggerDebounceDelay / 2);      // debouncing here enables a simple if-else-conditoin before shooting
     if (shootMode == "semi-automatic") {  // registers one shot using speed sensor, delays to complete shot and stops
@@ -113,7 +114,7 @@ void Softair::shoot(bool state, string shootMode = "") {
       }
       delay(10);
       digitalWrite(motorControlPin, LOW);
-      Serial.printf("Shot once - %d\n", ++shotNumber);
+      // Serial.printf("Shot once - %d\n", ++shotsFired);
     }
 
     else if (shootMode == "full-automatic") {  // shoots until either trigger is released or finger stopped touching trigger
@@ -138,22 +139,23 @@ void Softair::shoot(bool state, string shootMode = "") {
 // Threaded Routines
 // ----------------------------------------------------------------------------
 
-void* Softair::setTriggerTouchedStateRoutine(void* param) {
+void* Softair::setTriggerTouchedStateRoutine(void* param) {  // Working
   // Flags to prevent writing the value of setTriggerTouchedStateRoutine over and over again while it is already enabled
   bool setEnabledFlag = false;
   bool setDisabledFlag = false;
+  short int tempTouchValue;
 
   while (true) {
-    if (touchRead(triggerTouchReadPin) >= touchDetectionThreshold && setEnabledFlag == false) {
+    tempTouchValue = touchRead(triggerTouchReadPin);
+    triggerTouchValue = tempTouchValue;
+    if (tempTouchValue <= touchDetectionThreshold && setEnabledFlag == false) {
       triggerEnabledByTouch = true;
       setEnabledFlag = true;
       setDisabledFlag = false;
-      Serial.printf("Trigger Touching");
-    } else if (touchRead(triggerTouchReadPin) < touchDetectionThreshold && setDisabledFlag == false) {
+    } else if (tempTouchValue > touchDetectionThreshold && setDisabledFlag == false) {
       triggerEnabledByTouch = false;
       setEnabledFlag = false;
       setDisabledFlag = true;
-      Serial.printf("Trigger Touching Stopped");
     }
     delay(threadSetTriggerTouchedStateRoutineSleepDuration);  // time to sleep between each iteration
   }
@@ -163,47 +165,106 @@ void* Softair::setTriggerPulledStateRoutine(void* param) {
   // Flags to prevent writing the value of setTriggerTouchedStateRoutine over and over again while it is already enabled
   bool setEnabledFlag = false;
   bool setDisabledFlag = false;
-  unsigned int currentCpuClockspeed = rtc_clk_cpu_freq_get();
-
-  clock_t startHigh;
-  clock_t endHigh;
-  clock_t startLow;
-  clock_t endLow;
+  bool touchFlag = false;
+  unsigned int timerLow = 0;
+  unsigned int timerHigh = 0;
+  unsigned int timeoutTimer = 0;
 
   while (true) {
+    timerHigh = 0;
+    timerLow = 0;
+
     if (triggerEnabledByTouch) {
-      startHigh = clock();
-      while (digitalRead(triggerPullReadPin) == HIGH) {                                               // Debouncing begins from here
-        if (((clock() - startHigh) * 1000 / currentCpuClockspeed) >= debounceStableTimeUntilShoot) {  // check if elapsed time == debounceStableTimeUntilShoot
+      touchFlag = true;
+      Serial.printf("-----------------------------------------------------\n");
+      Serial.printf("pullThread - Trigger Touching: %d\n", triggerTouchValue);
+
+      while (digitalRead(triggerPullReadPin) == HIGH && setEnabledFlag == false) {
+        timerHigh++;
+        Serial.printf("pullThread - Time High: %d\n", timerHigh);
+        if (timerHigh >= 10) {
+          Serial.printf("pullThread - pulling trigger and touching, timerHigh = %d\n", timerHigh);
+          triggerPulledByFinger = true;
+          setEnabledFlag = true;
+          setDisabledFlag = false;
         }
+        delay(1);
       }
-      // endHigh;
+
+      while (digitalRead(triggerPullReadPin) == LOW && setDisabledFlag == false) {
+        timerLow++;
+        Serial.printf("pullThread - Time Low: %d\n", timerLow);
+        if (timerLow >= 10) {
+          Serial.printf("pullThread - released trigger or not touching, timerLow = %d\n", timerLow);
+          triggerPulledByFinger = false;
+          setEnabledFlag = false;
+          setDisabledFlag = true;
+        }
+        delay(1);
+      }
+    } else if (!triggerEnabledByTouch) {
+      setEnabledFlag = false;
+      setDisabledFlag = false;
+      touchFlag = false;
+      triggerPulledByFinger = false;
+      Serial.printf("pullThread - stopped Touching Trigger: %d\n", triggerTouchValue);
     }
+
+    // if (Softair::triggerEnabledByTouch && digitalRead(triggerPullReadPin) == HIGH && setEnabledFlag == false) {  // trigger pull initiated
+    //   setEnabledFlag = true;
+    //   Serial.printf("touching, trigger pulling initiated.\n");
+    //   timeoutTimer = 0;
+    // resetBouncing:
+    //   Serial.printf("Resetting timer to 0\n");
+    //   timer = 0;
+    //   timeoutTimer++;
+
+    //   while (timer <= debounceStableTimeUntilShoot || timeoutTimer < debounceTimeout) {  // debouncing part
+    //     if (digitalRead(triggerPullReadPin) == HIGH) {
+    //       timer++;
+    //       Serial.printf("increasing pulled timer: %d\n", timer);
+    //     } else {
+    //       goto resetBouncing;
+    //     }
+    //     delay(triggerDebounceDelay);
+    //     Serial.printf("Timeout Timer: %d\n", timeoutTimer);
+    //   }
+
+    //   if (timeoutTimer < debounceTimeout) {
+    //     Serial.printf("debounced successfully: timer = %d, timeoutTimer = %d\n", timer, timeoutTimer);
+    //     Softair::triggerPulledByFinger = true;
+    //   }
+    // } else {
+    //   setEnabledFlag = false;
+    // }
+
+    delay(Softair::threadSetTriggerPulledStateRoutineSleepDuration);
   }
 
-  delay(triggerDebounceDelay / 2);      // debouncing here enables a simple if-else-condition before shooting
-  if (shootMode == "semi-automatic") {  // registers one shot using speed sensor, delays to complete shot and stops
-    while (digitalRead(pistonSensorReadPin) == HIGH) {
-      digitalWrite(motorControlPin, HIGH);
-    }
-    delay(10);
-    digitalWrite(motorControlPin, LOW);
-    Serial.printf("Shot once - %d\n", ++shotNumber);
-  }
+  // delay(triggerDebounceDelay / 2);      // debouncing here enables a simple if-else-condition before shooting
+  // if (shootMode == "semi-automatic") {  // registers one shot using speed sensor, delays to complete shot and stops
+  //   while (digitalRead(pistonSensorReadPin) == HIGH) {
+  //     digitalWrite(motorControlPin, HIGH);
+  //   }
+  //   delay(10);
+  //   digitalWrite(motorControlPin, LOW);
+  //   Serial.printf("Shot once - %d\n", ++shotsFired);
+  // }
 
-  else if (shootMode == "full-automatic") {  // shoots until either trigger is released or finger stopped touching trigger
-    while (digitalRead(triggerPullReadPin) == HIGH && touchRead(4) <= touchDetectionThreshold) {
-    continueShooting:
-      digitalWrite(motorControlPin, HIGH);
-    }
-    delay(triggerDebounceDelay / 4);
-    if (digitalRead(triggerPullReadPin) == LOW || touchRead(4) >= touchDetectionThreshold) {
-      digitalWrite(motorControlPin, LOW);
-    }
-  }
+  // else if (shootMode == "full-automatic") {  // shoots until either trigger is released or finger stopped touching trigger
+  //   while (digitalRead(triggerPullReadPin) == HIGH && touchRead(4) <= touchDetectionThreshold) {
+  //   continueShooting:
+  //     digitalWrite(motorControlPin, HIGH);
+  //   }
+  //   delay(triggerDebounceDelay / 4);
+  //   if (digitalRead(triggerPullReadPin) == LOW || touchRead(4) >= touchDetectionThreshold) {
+  //     digitalWrite(motorControlPin, LOW);
+  //   }
+  // }
 }
 
 void* Softair::shootOnTouchAndTriggerRoutine(void* param) {
+  long int i = 0;
   while (true) {
     if (touchRead(4) <= touchDetectionThreshold) {  // Trigger touched by skin
 
@@ -222,28 +283,28 @@ void* Softair::countShotsRoutine(void* param) {
   bool incrementedCountFlag = false;
   while (true) {
     if (digitalRead(pistonSensorReadPin) == 0 && incrementedCountFlag == false) {
-      shotsFired++;
+      // shotsFired++;
       while (digitalRead(pistonSensorReadPin) == 0) {
-        sleep(0.1);  // wait until piston leaves the barrier to prevent multiple increasements in one shot
+        delay(1);  // wait until piston leaves the barrier to prevent multiple increasements in one shot
       }
     }
   }
 }
 
+void* Softair::setSystemSleepStateRoutine(void* param) {}
+
 // ----------------------------------------------------------------------------
 // GLOBAL SETTINGS & ADJUSTMENTS
 // ----------------------------------------------------------------------------
 
-// TODO: Migrate all these vars into softair class to keep the pre-setup clean
+// TODO: Migrate all these vars into gun class to keep the pre-setup clean
 const unsigned int otaPort = 80;
-
-int shotNumber = 0;  // TODO: DELETE (replace by shotsFired)
 
 // WebServer
 // Allows setting the realm of authentication Default:"Login Required"
 const char* www_realm = "Custom Auth Realm";
 // the Content of the HTML response in case of Unautherized Access Default:empty
-String authFailResponse = "Authentication Failed";
+const char* authFailResponse = "Authentication Failed";
 
 WebServer server(otaPort);
 const char* serverIndex =
@@ -265,42 +326,70 @@ void setup() {
   Serial.begin(115200);
 
   // Creating the Softair Object
-  Softair softair("Cyma", "Glock", "18C");  // creation first, so gpio setup can access its attributes
+  Softair gun("Cyma", "Glock", "18C");  // creation first, so gpio setup can access its attributes
 
   // Shot sensor
-  ledcSetup(softair.shotChannel, softair.freq, softair.resolution);
-  ledcAttachPin(softair.pistonSensorReadPin, softair.shotChannel);
-  pinMode(softair.pistonSensorReadPin, INPUT_PULLDOWN);
-  pinMode(softair.triggerPullReadPin, INPUT_PULLDOWN);
-  pinMode(softair.motorControlPin, OUTPUT);
+  ledcSetup(Softair::shotChannel, Softair::freq, Softair::resolution);
+  ledcAttachPin(Softair::pistonSensorReadPin, Softair::shotChannel);
+  pinMode(Softair::pistonSensorReadPin, INPUT_PULLDOWN);
+  pinMode(Softair::triggerPullReadPin, INPUT_PULLDOWN);
+  pinMode(Softair::motorControlPin, OUTPUT);
+
+  Serial.printf("initial touch: %d, initial pull: %d\n", touchRead(Softair::triggerTouchReadPin), digitalRead(Softair::triggerPullReadPin));
 
   // WIFI SETUP
-  Serial.println("Waiting for Wifi.");
-  WiFi.begin(WIFI_SSID, WIFI_PASSORD);
-  while (WiFi.status() != WL_CONNECTED) {  // Wait for Wifi connection
+  unsigned short int counter = 0;
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.printf("Connecting to Wifi: %s\n", WIFI_SSID);
+    WiFi.disconnect();
+    WiFi.mode(WIFI_OFF);
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASSORD);
+    while (WiFi.status() != WL_CONNECTED && counter <= 5) {
+      Serial.printf("Wifi Connection Try: %d\n", counter++);
+      delay(1000);
+    }
+    if (counter > 5 && WiFi.status() != WL_CONNECTED) {
+      Serial.printf("Failed to connect to Wifi: %s\n", WIFI_SSID);
+    } else {
+      Serial.printf("Connected to Wifi: %s\n", WIFI_SSID);
+    }
   }
-  Serial.printf("Connected to Wifi: %s\n", WIFI_SSID);
 
   // THREAD SETUP
-
   disableCore0WDT();  // Disable WatchDogTimeout, so threads can run as long as they want
   disableCore1WDT();  // Same goes for the second core
 
   // Thread Creations
-  Serial.println((pthread_create(&softair.setTriggerTouchedStateRoutineThreadHandle, NULL, softair.setTriggerTouchedStateRoutine, NULL) == 0)
-                     ? "Thread setTriggerTouchedStateRoutine successfully started"
-                     : "Failed");
-  Serial.println((pthread_create(&softair.setTriggerPulledStateRoutineThreadHandle, NULL, softair.setTriggerPulledStateRoutine, NULL) == 0)
-                     ? "Thread setTriggerPulledStateRoutine successfully started "
-                     : "Failed");
-  Serial.println((pthread_create(&softair.countShotsRoutineThreadHandle, NULL, softair.countShotsRoutine, NULL) == 0) ? "Thread countShotsRoutine successfully started" : "Failed");
-  Serial.println((pthread_create(&softair.shootOnTouchAndTriggerRoutineThreadHandle, NULL, softair.shootOnTouchAndTriggerRoutine, NULL) == 0)
-                     ? "Thread shootOnTouchAndTriggerRoutine successfully started"
-                     : "Failed");
-  Serial.println((pthread_create(&softair.setSystemSleepStateRoutineThreadHandle, NULL, softair.setSystemSleepStateRoutine, NULL) == 0)
-                     ? "Thread setSystemSleepStateRoutine successfully started       "
-                     : "Failed");
-  Serial.println((pthread_create(&webserverThreadHandle, NULL, webServerThreadFunction, NULL) == 0) ? "Thread WebServer successfully started" : "Failed");
+  if (pthread_create(&gun.setTriggerTouchedStateRoutineThreadHandle, NULL, gun.setTriggerTouchedStateRoutine, NULL) == 0)
+    Serial.println("Thread setTriggerTouchedStateRoutine successfully started\n");
+  else
+    Serial.println("Thread setTriggerTouchedStateRoutine Failed\n");
+
+  if (pthread_create(&gun.setTriggerPulledStateRoutineThreadHandle, NULL, gun.setTriggerPulledStateRoutine, NULL) == 0)
+    Serial.println("Thread setTriggerPulledStateRoutine successfully started\n");
+  else
+    Serial.println("Thread setTriggerPulledStateRoutine failed\n");
+
+  // if (pthread_create(&gun.countShotsRoutineThreadHandle, NULL, gun.countShotsRoutine, NULL) == 0)
+  //   Serial.println("Thread countShotsRoutine successfully started");
+  // else
+  //   Serial.println("Thread countShotsRoutine failed");
+
+  // if (pthread_create(&gun.shootOnTouchAndTriggerRoutineThreadHandle, NULL, gun.shootOnTouchAndTriggerRoutine, NULL) == 0)
+  //   Serial.println("Thread shootOnTouchAndTriggerRoutine successfully started");
+  // else
+  //   Serial.println("Thread shootOnTouchAndTriggerRoutine failed");
+
+  // if (pthread_create(&gun.setSystemSleepStateRoutineThreadHandle, NULL, gun.setSystemSleepStateRoutine, NULL) == 0)
+  //   Serial.println("Thread setSystemSleepStateRoutine successfully started");
+  // else
+  //   Serial.println("Thread setSystemSleepStateRoutine failed");
+
+  // if (pthread_create(&webserverThreadHandle, NULL, webServerThreadFunction, NULL) == 0)
+  //   Serial.println("Thread WebServer successfully started");
+  // else
+  //   Serial.println("Thread WebServer failed");
 }
 
 // ----------------------------------------------------------------------------
@@ -389,7 +478,7 @@ void* webServerThreadFunction(void* param) {
 
 // TODO: when touching the trigger, wake the esp from deepsleep mode
 
-// TODO: export softair clas / methods etc and include in Sektch.ino to keep the sketch clean, header file should contain declerations only and cpp file the implementation
+// TODO: export gun clas / methods etc and include in Sektch.ino to keep the sketch clean, header file should contain declerations only and cpp file the implementation
 // => header file gives an idea of how the system works
 
 // TODO: rewrite wifi connector to be threaded and non-blocking (offline data should be collected and pushed to connected platform as soon as connection is available again)
