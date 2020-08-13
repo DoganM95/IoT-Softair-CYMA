@@ -1,4 +1,4 @@
-### Used main components to develop this system:
+### Hardware components used to develop this system:
 - CYMA Glock 18C (CM.030)
 - ESP32 (bare chip microcontroller, WROOM variant)
 
