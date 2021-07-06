@@ -1,4 +1,4 @@
-### Main hardware used to develop this system:
+### Main hardware components
 - CYMA Glock 18C (CM.030)
 - ESP32 (bare chip microcontroller, WROOM variant)
 - TP5100 (2S battery charger Mmodule, 8.4V)
